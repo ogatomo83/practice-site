@@ -15,6 +15,6 @@
 - localStorage のキーの接頭辞はサイトごとに別にする（rust: `zr-`、postgresql: `zp-`）
 - 本文に書く数値や挙動は、実際に動かして確かめたものだけにする。PGlite の制約（接続は 1 つ、並列クエリなし、ファイルを使う COPY は不可）に当たる内容は、図と実行しない例で説明する
 - 確認問題は「出力が合えば正解」。誤答でも同じ出力になる問題、`now()` や xmin のように実行ごとに変わる値を答えにする問題は作らない
-- git リポジトリ（https://github.com/ogatomo83/practice-site、このディレクトリがルート）。`site/` も生成物としてコミットする（GitHub 上でそのまま開けるように）。原稿を書き換えたら `node src/build.mjs` で再ビルドしてから一緒にコミットする
+- git リポジトリ（https://github.com/ogatomo83/practice-site、このディレクトリがルート）。`site/` も生成物としてコミットする。main を push すると GitHub Pages（https://ogatomo83.github.io/practice-site/ ）に公開される。`.nojekyll` は消さない（消すと原稿の front matter を Jekyll が処理してビルドが失敗する）。原稿を書き換えたら `node src/build.mjs` で再ビルドしてから一緒にコミットする
 - 変更したら、実行ブロックと確認問題を検査してから終える（手順はスキルの「検査」）
 - 章数、図の数、実行できる SQL の数が変わったら、`index.html` のカードと README の数字も直す

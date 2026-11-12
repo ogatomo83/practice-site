@@ -14,7 +14,7 @@ description: 「図解 ○○」形式の日本語学習サイト（docs/rust、
 
 入口は `docs/index.html`（各サイトへのカードの一覧）。どのサイトも `site/index.html` を file:// で開けば読め、サーバは要らない。
 
-GitHub: https://github.com/ogatomo83/practice-site（`docs/` がリポジトリのルート）。このスキル自体も `docs/.claude/skills/zukai-site/` に入っていて、`~/.claude/skills/zukai-site` はそこへのシンボリックリンクになっている。
+GitHub: https://github.com/ogatomo83/practice-site（`docs/` がリポジトリのルート）。main への push で GitHub Pages（https://ogatomo83.github.io/practice-site/ ）に公開される。このスキル自体も `docs/.claude/skills/zukai-site/` に入っていて、`~/.claude/skills/zukai-site` はそこへのシンボリックリンクになっている。
 
 **どこまで・どの細かさで作るかは [references/granularity.md](references/granularity.md)、実行環境を作るときは [references/runtime.md](references/runtime.md) を先に読む。**
 
