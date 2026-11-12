@@ -10,7 +10,8 @@ description: 「図解 ○○」形式の日本語学習サイト（docs/rust、
 | サイト | 特徴 | 雛形にするとき |
 | --- | --- | --- |
 | `docs/rust` | 図が中心。コードは読むだけ | 実行環境が要らない題材 |
-| `docs/postgresql` | 本文の SQL をブラウザ内の PostgreSQL 18（PGlite）で実行できる。DB ビュー、確認問題、実験場がある | ブラウザで動かせる題材（SQL、Python/Pyodide、JS など） |
+| `docs/postgresql` | 本文の SQL をブラウザ内の PostgreSQL 18（PGlite）で実行できる。DB ビュー、確認問題、実験場がある | ブラウザで動かせる既存の実行環境がある題材（SQL、Python/Pyodide、JS など） |
+| `docs/cpu` | 実行環境を自作した例。RISC-V エミュレータ（rv.js）と論理回路シミュレータ（logic.js）、判定を集約した grade.js、ステップ実行の「CPU を見る」。設計は `cpu/DESIGN.md` | 実行環境そのものを作る題材。作り方の流れ（設計書 → 中心部品を並行で作りテスト → 判定の共通部品と章の検査スクリプト → 画面と章を並行 → 仕上げ）の手本 |
 
 入口は `docs/index.html`（各サイトへのカードの一覧）。どのサイトも `site/index.html` を file:// で開けば読め、サーバは要らない。
 

@@ -40,7 +40,8 @@
   .k { font: 400 12px "JetBrains Mono", ui-monospace, monospace; }
   .rust .k { color: #9c3a14; }
   .pg .k { color: #2b5a80; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rust .k { color: #e8936a; } :root:not([data-theme="light"]) .pg .k { color: #92b8dc; } }
+  .cpu .k { color: #3d7a4f; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rust .k { color: #e8936a; } :root:not([data-theme="light"]) .pg .k { color: #92b8dc; } :root:not([data-theme="light"]) .cpu .k { color: #8fc79f; } }
   .t { font-size: 19px; font-weight: 500; }
   .d { font-size: 14px; color: var(--t2); }
   .m { font: 400 12px "JetBrains Mono", ui-monospace, monospace; color: var(--t3); margin-top: auto; padding-top: 8px; }
@@ -49,7 +50,7 @@
 <body>
 <main>
   <h1>学習ドキュメント</h1>
-  <p class="lead">図を中心に、手を動かしながら読む日本語の学習サイト。どちらもサーバ不要で、このフォルダからそのまま開けます。</p>
+  <p class="lead">図を中心に、手を動かしながら読む日本語の学習サイト。どれもサーバ不要で、このフォルダからそのまま開けます。</p>
   <div class="grid">
     <a class="card rust" href="rust/site/index.html">
       <span class="k">docs/rust</span>
@@ -62,6 +63,12 @@
       <span class="t">図解 PostgreSQL</span>
       <span class="d">歴史、SQL、8 KB のページ、MVCC、インデックス、WAL、運用まで。本文の SQL をブラウザの中の PostgreSQL 18 で実行できる。</span>
       <span class="m">22 章 · 図 58 · 実行できる SQL 379</span>
+    </a>
+    <a class="card cpu" href="cpu/site/index.html">
+      <span class="k">docs/cpu</span>
+      <span class="t">図解 CPU</span>
+      <span class="d">0 と 1、論理ゲート、加算器、機械語、パイプライン、キャッシュまで。自作の RISC-V CPU と回路シミュレータをブラウザで動かしながら、ゲームを作るところまで。</span>
+      <span class="m">22 章 · 図 119 · 実行できるプログラムと回路 331 · 確認問題 76</span>
     </a>
   </div>
 </main>
