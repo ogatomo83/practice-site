@@ -1,0 +1,389 @@
+{
+ "ch00-1": {
+  "ok": [
+   "select price, name from products"
+  ],
+  "ng": [
+   "select name from products",
+   "select name, price from products where price > 1000"
+  ]
+ },
+ "ch01-1": {
+  "ok": [
+   "select split_part(current_setting('server_version'), '.', 1)"
+  ],
+  "ng": [
+   "select version()"
+  ]
+ },
+ "ch02-1": {
+  "ok": [
+   "select distinct c.id from customers c join orders o on o.customer_id = c.id where c.prefecture = '東京都'"
+  ],
+  "ng": [
+   "select customer_id from orders union select id from customers where prefecture = '東京都'"
+  ]
+ },
+ "ch02-2": {
+  "ng": [
+   "select name from customers where birth_year = null"
+  ]
+ },
+ "ch02-3": {
+  "ok": [
+   "select id from customers where id not in (select customer_id from orders)"
+  ]
+ },
+ "ch03-1": {
+  "ok": [
+   "select price, name from products where price >= 1000 and price <= 5000 order by price desc"
+  ],
+  "ng": [
+   "select name, price from products where price between 1000 and 5000 order by price"
+  ]
+ },
+ "ch03-3": {
+  "ng": [
+   "select name, stock from products order by stock desc limit 3"
+  ]
+ },
+ "ch03-4": {
+  "ok": [
+   "select name, case when stock < 1 then '品切れ' when stock between 1 and 9 then '残りわずか' else '在庫あり' end from products"
+  ],
+  "ng": [
+   "select name, case when stock < 10 then '残りわずか' when stock = 0 then '品切れ' else '在庫あり' end from products"
+  ]
+ },
+ "ch04-1": {
+  "ok": [
+   "select name, floor(price * 1.08) from products",
+   "select name, trunc(price * 1.08) from products"
+  ],
+  "ng": [
+   "select name, round(price * 1.08) from products",
+   "select name, price * 1.08 from products"
+  ]
+ },
+ "ch04-2": {
+  "ok": [
+   "select name, date_part('year', joined_on) from customers",
+   "select name, to_char(joined_on, 'YYYY') from customers"
+  ]
+ },
+ "ch04-3": {
+  "ok": [
+   "select name from products where tags @> array['ギフト']",
+   "select name from products where tags @> '{ギフト}'"
+  ]
+ },
+ "ch04-4": {
+  "ok": [
+   "select name from products where attrs @> '{\"color\": \"黒\"}'"
+  ],
+  "ng": [
+   "select name from products where attrs -> 'color' = '黒'"
+  ]
+ },
+ "ch05-1": {
+  "ok": [
+   "create table members (email text not null, age int, id int, primary key (id), unique (email), check (age >= 0))"
+  ],
+  "ng": [
+   "create table members (id int primary key, email text unique, age int check (age >= 0))",
+   "create table members (id int, email text not null unique, age int check (age >= 0))"
+  ]
+ },
+ "ch05-2": {
+  "ok": [
+   "create table books (id int primary key, title text, author_id int, foreign key (author_id) references authors on delete cascade)"
+  ],
+  "ng": [
+   "create table books (id int primary key, title text, author_id int references authors (id))",
+   "create table books (id int primary key, title text, author_id int)"
+  ]
+ },
+ "ch05-3": {
+  "ng": [
+   "alter table products add column discontinued boolean default false",
+   "alter table products add column discontinued boolean not null default true"
+  ]
+ },
+ "ch06-1": {
+  "ok": [
+   "update products set price = round(price * 1.1) where name like '方眼ノート%'",
+   "update products set price = price * 11 / 10 where name ~ '^方眼ノート'"
+  ],
+  "ng": [
+   "update products set price = price * 1.1 where name like '%ノート%'"
+  ]
+ },
+ "ch06-2": {
+  "ok": [
+   "delete from order_items oi using orders o where o.id = oi.order_id and o.status = 'cancelled'"
+  ],
+  "ng": [
+   "delete from orders where status = 'cancelled'",
+   "delete from order_items where order_id = 6"
+  ]
+ },
+ "ch06-3": {
+  "ok": [
+   "update daily_sales set qty = qty + 4 where day = '2026-04-02' and product_id = 3"
+  ],
+  "ng": [
+   "insert into daily_sales values ('2026-04-02', 3, 4) on conflict (day, product_id) do update set qty = excluded.qty",
+   "insert into daily_sales values ('2026-04-02', 3, 4) on conflict do nothing"
+  ]
+ },
+ "ch07-1": {
+  "ok": [
+   "select orders.id, customers.name from orders, customers where customers.id = orders.customer_id"
+  ]
+ },
+ "ch07-2": {
+  "ok": [
+   "select p.name from products p left join order_items oi on oi.product_id = p.id where oi.product_id is null",
+   "select name from products where id not in (select product_id from order_items)"
+  ]
+ },
+ "ch07-3": {
+  "ng": [
+   "select e.name, m.name from employees e join employees m on m.id = e.manager_id"
+  ]
+ },
+ "ch07-4": {
+  "ng": [
+   "select c.name, o.id from customers c left join orders o on o.customer_id = c.id where o.ordered_at >= '2026-01-01'"
+  ]
+ },
+ "ch08-1": {
+  "ok": [
+   "select count(*), prefecture from customers group by 2"
+  ]
+ },
+ "ch08-2": {
+  "ng": [
+   "select p.name, sum(oi.quantity) from order_items oi join products p on p.id = oi.product_id group by p.name"
+  ]
+ },
+ "ch08-3": {
+  "ng": [
+   "select c.name, count(*) from customers c join orders o on o.customer_id = c.id where o.status <> 'cancelled' group by c.id, c.name having count(*) >= 2"
+  ]
+ },
+ "ch08-4": {
+  "ok": [
+   "select sum(case when status = 'shipped' then 1 else 0 end), sum(case when status = 'cancelled' then 1 else 0 end), sum(case when status in ('paid', 'pending') then 1 else 0 end) from orders"
+  ],
+  "ng": [
+   "select status, count(*) from orders group by status"
+  ]
+ },
+ "ch09-1": {
+  "ok": [
+   "with a as (select avg(price) v from products) select name, price from products, a where price > a.v"
+  ]
+ },
+ "ch09-2": {
+  "ok": [
+   "select distinct c.name from customers c join orders o on o.customer_id = c.id join order_items oi on oi.order_id = o.id join products p on p.id = oi.product_id where p.category_id = 2"
+  ],
+  "ng": [
+   "select c.name from customers c join orders o on o.customer_id = c.id join order_items oi on oi.order_id = o.id join products p on p.id = oi.product_id where p.category_id = 2"
+  ]
+ },
+ "ch09-3": {
+  "ng": [
+   "with recursive chain as (select id, name, manager_id, 1 as depth from employees where name = '木村 涼' union all select e.id, e.name, e.manager_id, c.depth + 1 from employees e join chain c on e.id = c.manager_id) select name from chain order by depth desc"
+  ]
+ },
+ "ch10-1": {
+  "ng": [
+   "select name, price, row_number() over (order by price desc) from products",
+   "select name, price, dense_rank() over (order by price desc) from products"
+  ]
+ },
+ "ch10-2": {
+  "ok": [
+   "select category_id, name, price from products p where price = (select max(price) from products q where q.category_id = p.category_id)"
+  ],
+  "ng": [
+   "select distinct on (category_id) category_id, name, price from products order by category_id, price desc"
+  ]
+ },
+ "ch10-3": {
+  "ok": [
+   "select d, amount, amount - lag(amount, 1) over w from daily window w as (order by d)"
+  ]
+ },
+ "ch10-4": {
+  "ok": [
+   "select d, (select sum(amount) from daily x where x.d <= daily.d) from daily"
+  ],
+  "ng": [
+   "select d, sum(amount) over () from daily"
+  ]
+ },
+ "ch11-3": {
+  "ok": [
+   "create table product_tags (product_id int references products, tag text, unique (product_id, tag))"
+  ],
+  "ng": [
+   "create table product_tags (product_id int, tag text, primary key (product_id, tag))",
+   "create table product_tags (product_id int references products, tag text)"
+  ]
+ },
+ "ch12-1": {
+  "ok": [
+   "select ctid::text from q where v = 'いい'"
+  ],
+  "ng": [
+   "select ctid from q where id = 1"
+  ]
+ },
+ "ch12-2": {
+  "ok": [
+   "select lp from heap_page_items(get_raw_page('q', 0)) where t_xmax::text <> '0'"
+  ],
+  "ng": [
+   "select lp from heap_page_items(get_raw_page('q', 0))"
+  ]
+ },
+ "ch12-3": {
+  "ok": [
+   "select pg_relation_size('q2') / 8192"
+  ],
+  "ng": [
+   "select pg_relation_size('q2')"
+  ]
+ },
+ "ch13-1": {
+  "ng": [
+   "select count(*) from acc"
+  ]
+ },
+ "ch13-2": {
+  "ok": [
+   "insert into acc values (3, '高橋', 1000); select xmin::text = txid_current()::text from acc where id = 3"
+  ]
+ },
+ "ch13-3": {
+  "ng": [
+   "update acc set balance = balance - 1000 where id = 1 returning balance"
+  ]
+ },
+ "ch14-1": {
+  "ok": [
+   "create index members_lower_email_idx on members using btree (lower(email))"
+  ],
+  "ng": [
+   "create index on members (email)"
+  ]
+ },
+ "ch14-2": {
+  "ok": [
+   "create index on members (pref, status)"
+  ],
+  "ng": [
+   "create index on members (pref)",
+   "create index on members (status)"
+  ]
+ },
+ "ch14-3": {
+  "ng": [
+   "create index on members (joined_at)",
+   "create index on members (joined_at) where status = 'pending'"
+  ]
+ },
+ "ch15-2": {
+  "ok": [
+   "create statistics on pref, city from addr"
+  ],
+  "ng": [
+   "create statistics s (ndistinct) on city, pref from addr",
+   "analyze addr"
+  ]
+ },
+ "ch15-3": {
+  "ok": [
+   "prepare count_kind(text) as select count(*) from events where kind = $1; execute count_kind('click')"
+  ],
+  "ng": [
+   "select count(*) from events where kind = 'view'"
+  ]
+ },
+ "ch16-1": {
+  "ok": [
+   "select '0/3000060'::pg_lsn - '0/3000000'::pg_lsn"
+  ],
+  "ng": [
+   "select '0/3000000'::pg_lsn - '0/3000060'::pg_lsn"
+  ]
+ },
+ "ch17-1": {
+  "ng": [
+   "lock table products in exclusive mode; select mode from pg_locks where relation = 'products'::regclass"
+  ]
+ },
+ "ch17-3": {
+  "ng": [
+   "select pg_advisory_xact_lock(7); select objid, mode from pg_locks where locktype = 'advisory'",
+   "begin; select 1"
+  ]
+ },
+ "ch18-1": {
+  "ng": [
+   "create view customer_order_counts as select c.name, count(*) from customers c left join orders o on o.customer_id = c.id group by c.id, c.name"
+  ]
+ },
+ "ch18-2": {
+  "ok": [
+   "create function with_tax(p int) returns int as $$ select round(p * 1.1)::int $$ language sql"
+  ],
+  "ng": [
+   "create function with_tax(price int) returns int language sql return price * 110 / 100"
+  ]
+ },
+ "ch18-3": {
+  "ok": [
+   "create function f() returns trigger language plpgsql as $$ begin if new.price <> old.price then insert into price_history values (old.id, old.price, new.price); end if; return null; end $$; create trigger t after update on products for each row execute function f()"
+  ],
+  "ng": [
+   "create function f() returns trigger language plpgsql as $$ begin insert into price_history values (old.id, old.price, new.price); return null; end $$; create trigger t after update on products for each row execute function f()"
+  ]
+ },
+ "ch19-2": {
+  "ok": [
+   "select x.sku, sum(x.qty * x.price) from api_events e, json_table(e.body, '$.items[*]' columns (sku text path '$.sku', qty int path '$.qty', price int path '$.price')) x group by 1"
+  ]
+ },
+ "ch19-3": {
+  "ok": [
+   "select id, title from articles where to_tsvector('english', body) @@ plainto_tsquery('english', 'ink')"
+  ],
+  "ng": [
+   "select id, title from articles where body like '%ink%'",
+   "select id, title from articles where body ilike '%ink%'"
+  ]
+ },
+ "ch20-1": {
+  "ng": [
+   "create role hr_reader nologin; grant select on employees to hr_reader"
+  ]
+ },
+ "ch20-2": {
+  "ok": [
+   "create table logs_feb partition of logs for values from ('2026-02-01 00:00+09') to ('2026-03-01 00:00+09'); insert into logs values ('2026-02-14 12:00+09', '/valentine')"
+  ],
+  "ng": [
+   "create table logs_def partition of logs default; insert into logs values ('2026-02-14 12:00+09', '/valentine')"
+  ]
+ },
+ "ch20-3": {
+  "ng": [
+   "create policy p on notes using (tenant = current_setting('app.tenant'))",
+   "alter table notes enable row level security"
+  ]
+ }
+}

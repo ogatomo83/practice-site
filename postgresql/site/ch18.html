@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ビュー・関数・トリガ — 図解 PostgreSQL</title>
+<meta name="description" content="問い合わせに名前を付けるビューとマテリアライズドビュー、SQL と PL/pgSQL で書く関数とプロシージャ、データの変更に反応して動くトリガ。データベースの中にロジックを置くための道具と、その使いどころを学びます。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+JP:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script>try{var t=localStorage.getItem('zp-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<header class="top">
+  <button type="button" class="icon-btn menu-btn" aria-label="目次を開く"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <a class="brand" href="index.html"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6"/><path d="M6.5 7h11M6.5 10.5h11M6.5 14h6" class="mark-l"/><circle cx="16.5" cy="16.5" r="2" class="mark-d"/></svg><span>図解 PostgreSQL</span></a>
+  <div class="search">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="search" id="q" placeholder="検索" autocomplete="off" aria-label="章と節を検索">
+    <kbd class="kc">/</kbd>
+    <div class="search-res" hidden></div>
+  </div>
+  <div class="db-state" hidden><span class="db-dot"></span><span class="db-text">DB 停止中</span><button type="button" class="db-view" aria-pressed="false" aria-controls="dbv" title="いまのデータベースの中身（テーブル、行、インデックス）を横に表示します">DB を見る</button><button type="button" class="db-reset" title="この章のデータベースを最初の状態に戻します">リセット</button></div>
+  <button type="button" class="icon-btn theme-btn" aria-label="テーマを切り替え"><span class="i-sun"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span><span class="i-moon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.1A8.5 8.5 0 0 1 9.9 3.5a8.5 8.5 0 1 0 10.6 10.6z"/></svg></span></button>
+</header>
+<div class="layout">
+  <aside class="side"><nav class="side-nav" aria-label="目次"><div class="nav-ch"><a class="nav-c" href="ch00.html"><span class="nav-no">序</span><span class="nav-t">はじめに</span><span class="nav-prog" data-ch="ch00" data-total="5"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch01.html"><span class="nav-no">1</span><span class="nav-t">歴史</span><span class="nav-prog" data-ch="ch01" data-total="9"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch02.html"><span class="nav-no">2</span><span class="nav-t">リレーショナルモデル</span><span class="nav-prog" data-ch="ch02" data-total="6"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch03.html"><span class="nav-no">3</span><span class="nav-t">SELECT</span><span class="nav-prog" data-ch="ch03" data-total="10"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch04.html"><span class="nav-no">4</span><span class="nav-t">データ型</span><span class="nav-prog" data-ch="ch04" data-total="10"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch05.html"><span class="nav-no">5</span><span class="nav-t">テーブル定義</span><span class="nav-prog" data-ch="ch05" data-total="9"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch06.html"><span class="nav-no">6</span><span class="nav-t">変更</span><span class="nav-prog" data-ch="ch06" data-total="9"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch07.html"><span class="nav-no">7</span><span class="nav-t">JOIN</span><span class="nav-prog" data-ch="ch07" data-total="9"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch08.html"><span class="nav-no">8</span><span class="nav-t">集約</span><span class="nav-prog" data-ch="ch08" data-total="9"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch09.html"><span class="nav-no">9</span><span class="nav-t">サブクエリ・CTE</span><span class="nav-prog" data-ch="ch09" data-total="8"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch10.html"><span class="nav-no">10</span><span class="nav-t">ウィンドウ関数</span><span class="nav-prog" data-ch="ch10" data-total="8"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch11.html"><span class="nav-no">11</span><span class="nav-t">設計</span><span class="nav-prog" data-ch="ch11" data-total="10"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch12.html"><span class="nav-no">12</span><span class="nav-t">ページとタプル</span><span class="nav-prog" data-ch="ch12" data-total="10"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch13.html"><span class="nav-no">13</span><span class="nav-t">MVCC</span><span class="nav-prog" data-ch="ch13" data-total="9"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch14.html"><span class="nav-no">14</span><span class="nav-t">インデックス</span><span class="nav-prog" data-ch="ch14" data-total="8"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch15.html"><span class="nav-no">15</span><span class="nav-t">実行計画</span><span class="nav-prog" data-ch="ch15" data-total="9"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch16.html"><span class="nav-no">16</span><span class="nav-t">WAL</span><span class="nav-prog" data-ch="ch16" data-total="10"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch17.html"><span class="nav-no">17</span><span class="nav-t">ロック</span><span class="nav-prog" data-ch="ch17" data-total="8"></span></a></div><div class="nav-ch is-open"><a class="nav-c is-active" href="ch18.html"><span class="nav-no">18</span><span class="nav-t">関数・トリガ</span><span class="nav-prog" data-ch="ch18" data-total="7"></span></a><ul class="nav-secs"><li><a href="#view" data-key="ch18#view"><span class="nav-sno">18.1</span><span>ビュー</span></a></li><li><a href="#matview" data-key="ch18#matview"><span class="nav-sno">18.2</span><span>マテリアライズドビュー</span></a></li><li><a href="#functions" data-key="ch18#functions"><span class="nav-sno">18.3</span><span>関数</span></a></li><li><a href="#plpgsql" data-key="ch18#plpgsql"><span class="nav-sno">18.4</span><span>PL/pgSQL</span></a></li><li><a href="#procedure" data-key="ch18#procedure"><span class="nav-sno">18.5</span><span>プロシージャ</span></a></li><li><a href="#trigger" data-key="ch18#trigger"><span class="nav-sno">18.6</span><span>トリガ</span></a></li><li><a href="#quiz" data-key="ch18#quiz"><span class="nav-sno">18.7</span><span>確認問題</span></a></li></ul></div><div class="nav-ch"><a class="nav-c" href="ch19.html"><span class="nav-no">19</span><span class="nav-t">JSON・検索・拡張</span><span class="nav-prog" data-ch="ch19" data-total="7"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch20.html"><span class="nav-no">20</span><span class="nav-t">運用</span><span class="nav-prog" data-ch="ch20" data-total="10"></span></a></div><div class="nav-ch"><a class="nav-c" href="ch21.html"><span class="nav-no">A</span><span class="nav-t">早見表・用語集</span><span class="nav-prog" data-ch="ch21" data-total="6"></span></a></div><a class="nav-c nav-play" href="playground.html"><span class="nav-no"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M12 15h5"/></svg></span><span class="nav-t">SQL を自由に試す</span></a></nav><div class="side-foot">SQL は <a href="https://pglite.dev/" target="_blank" rel="noopener">PGlite</a>（WebAssembly 版の PostgreSQL 18）でブラウザの中で実行します。初回の実行時に約 7 MB を読み込みます。</div></aside>
+  <main class="main"><article class="doc">
+  <header class="ch-head">
+    <div class="ch-eyebrow">第 18 章</div>
+    <h1>ビュー・関数・トリガ</h1>
+    <p class="lead">問い合わせに名前を付けるビューとマテリアライズドビュー、SQL と PL/pgSQL で書く関数とプロシージャ、データの変更に反応して動くトリガ。データベースの中にロジックを置くための道具と、その使いどころを学びます。</p>
+    <div class="ch-meta"><span>7 節</span><span>図 1 点</span><span>実行できる SQL 18 個</span><a href="#quiz">確認問題 3 問</a><span>目安 80 分</span></div>
+  </header>
+  <h2 id="view" data-sec="ch18#view"><span class="h-no">18.1</span>ビュー<button type="button" class="done-btn" data-key="ch18#view" aria-pressed="false" title="読了にする"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg><span>読了</span></button></h2><p><strong>ビュー</strong>は、SELECT 文に名前を付けて、テーブルのように使えるようにしたものです。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">view</span> order_summary <span class="k">as</span>
+<span class="k">select</span> o.id <span class="k">as</span> order_id,
+       c.<span class="t">name</span> <span class="k">as</span> customer,
+       o.ordered_at,
+       o.status,
+       <span class="f">sum</span>(oi.quantity <span class="o">*</span> oi.unit_price) <span class="k">as</span> amount,
+       <span class="f">count</span>(<span class="o">*</span>) <span class="k">as</span> items
+<span class="k">from</span> orders o
+<span class="k">join</span> customers c <span class="k">on</span> c.id <span class="o">=</span> o.customer_id
+<span class="k">join</span> order_items oi <span class="k">on</span> oi.order_id <span class="o">=</span> o.id
+<span class="k">group</span> <span class="k">by</span> o.id, c.<span class="t">name</span>;
+
+<span class="k">select</span> <span class="o">*</span> <span class="k">from</span> order_summary <span class="k">where</span> amount <span class="o">&gt;=</span> <span class="n">10000</span> <span class="k">order</span> <span class="k">by</span> ordered_at;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="13">create view order_summary as
+select o.id as order_id,
+       c.name as customer,
+       o.ordered_at,
+       o.status,
+       sum(oi.quantity * oi.unit_price) as amount,
+       count(*) as items
+from orders o
+join customers c on c.id = o.customer_id
+join order_items oi on oi.order_id = o.id
+group by o.id, c.name;
+
+select * from order_summary where amount &gt;= 10000 order by ordered_at;</textarea></div><div class="out" hidden aria-live="polite"></div></div><p>ビューはデータを持ちません。ビューを使った問い合わせは、第 15 章のリライタで<strong>元の SELECT に展開</strong>されてから計画が立てられます。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">explain</span> <span class="k">select</span> <span class="o">*</span> <span class="k">from</span> order_summary <span class="k">where</span> order_id <span class="o">=</span> <span class="n">6</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="1">explain select * from order_summary where order_id = 6;</textarea></div><div class="out" hidden aria-live="polite"></div></div><p><code>order_id = 6</code> の条件がビューの中まで押し込まれて、orders の主キーで 1 件を探していることが分かります。ビューを使っても、遅くなるわけではありません。</p><p>ビューの使い道は主に 3 つです。</p><ol><li><strong>複雑な問い合わせに名前を付ける</strong>：何度も書く結合や集計を 1 か所にまとめる</li><li><strong>見せる列を絞る</strong>：給与の列を除いたビューだけを、一部の利用者に見せる（第 20 章の権限と組み合わせる）</li><li><strong>表の構造を隠す</strong>：テーブルを分割しても、ビューで元の形に見せればアプリケーションを変えずに済む</li></ol><h3 id="view-1">更新できるビュー</h3><p>1 つのテーブルから列と行を選んだだけの単純なビューは、INSERT・UPDATE・DELETE ができます。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">view</span> tokyo_customers <span class="k">as</span>
+<span class="k">select</span> id, <span class="t">name</span>, email, prefecture, joined_on
+<span class="k">from</span> customers <span class="k">where</span> prefecture <span class="o">=</span> <span class="s">'東京都'</span>
+<span class="k">with</span> <span class="k">check</span> <span class="k">option</span>;
+
+<span class="k">update</span> tokyo_customers <span class="k">set</span> <span class="t">name</span> <span class="o">=</span> <span class="s">'佐藤 あおい'</span> <span class="k">where</span> id <span class="o">=</span> <span class="n">1</span>;
+<span class="k">select</span> id, <span class="t">name</span> <span class="k">from</span> customers <span class="k">where</span> id <span class="o">=</span> <span class="n">1</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="7">create view tokyo_customers as
+select id, name, email, prefecture, joined_on
+from customers where prefecture = '東京都'
+with check option;
+
+update tokyo_customers set name = '佐藤 あおい' where id = 1;
+select id, name from customers where id = 1;</textarea></div><div class="out" hidden aria-live="polite"></div></div><p><code>with check option</code> を付けると、ビューの条件から外れる変更を拒否します。</p><div class="code sqlrun is-fail"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="code-badge is-fail">エラーになる</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">update</span> tokyo_customers <span class="k">set</span> prefecture <span class="o">=</span> <span class="s">'大阪府'</span> <span class="k">where</span> id <span class="o">=</span> <span class="n">1</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="1">update tokyo_customers set prefecture = '大阪府' where id = 1;</textarea></div><div class="out" hidden aria-live="polite"></div></div><aside class="pgerr"><div class="pgerr-h"><span class="pgerr-sev">ERROR</span><span class="pgerr-msg">new row violates check option for view "tokyo_customers"</span><span class="pgerr-code" title="SQLSTATE">44000</span></div><div class="pgerr-b"><p><code>44000</code> は WITH CHECK OPTION の違反です。東京都の顧客だけを見せるビューから、大阪府に変えることはできません。</p></div></aside><h2 id="matview" data-sec="ch18#matview"><span class="h-no">18.2</span>マテリアライズドビュー<button type="button" class="done-btn" data-key="ch18#matview" aria-pressed="false" title="読了にする"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg><span>読了</span></button></h2><p>普通のビューは、使うたびに元の SELECT を実行します。重い集計なら、毎回待たされます。<strong>マテリアライズドビュー</strong>は、SELECT の結果を実際に保存しておくビューです。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">materialized</span> <span class="k">view</span> monthly_sales <span class="k">as</span>
+<span class="k">select</span> <span class="f">date_trunc</span>(<span class="s">'month'</span>, o.ordered_at)<span class="o">::</span><span class="t">date</span> <span class="k">as</span> <span class="k">month</span>,
+       <span class="f">sum</span>(oi.quantity <span class="o">*</span> oi.unit_price) <span class="k">as</span> amount
+<span class="k">from</span> orders o <span class="k">join</span> order_items oi <span class="k">on</span> oi.order_id <span class="o">=</span> o.id
+<span class="k">where</span> o.status <span class="o">&lt;&gt;</span> <span class="s">'cancelled'</span>
+<span class="k">group</span> <span class="k">by</span> <span class="n">1</span>;
+
+<span class="k">create</span> <span class="k">unique</span> <span class="k">index</span> <span class="k">on</span> <span class="f">monthly_sales</span> (<span class="k">month</span>);
+<span class="k">select</span> <span class="o">*</span> <span class="k">from</span> monthly_sales <span class="k">order</span> <span class="k">by</span> <span class="k">month</span> <span class="k">desc</span> <span class="k">limit</span> <span class="n">3</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="9">create materialized view monthly_sales as
+select date_trunc('month', o.ordered_at)::date as month,
+       sum(oi.quantity * oi.unit_price) as amount
+from orders o join order_items oi on oi.order_id = o.id
+where o.status &lt;&gt; 'cancelled'
+group by 1;
+
+create unique index on monthly_sales (month);
+select * from monthly_sales order by month desc limit 3;</textarea></div><div class="out" hidden aria-live="polite"></div></div><p>保存されているので、元のデータを変えても、マテリアライズドビューの中身は変わりません。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">insert</span> <span class="k">into</span> orders <span class="k">values</span> (<span class="n">30</span>, <span class="n">1</span>, <span class="s">'2026-02-10 10:00+09'</span>, <span class="s">'paid'</span>);
+<span class="k">insert</span> <span class="k">into</span> order_items <span class="k">values</span> (<span class="n">30</span>, <span class="n">1</span>, <span class="n">2</span>, <span class="n">12000</span>);
+<span class="k">select</span> <span class="o">*</span> <span class="k">from</span> monthly_sales <span class="k">where</span> <span class="k">month</span> <span class="o">=</span> <span class="s">'2026-02-01'</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="3">insert into orders values (30, 1, '2026-02-10 10:00+09', 'paid');
+insert into order_items values (30, 1, 2, 12000);
+select * from monthly_sales where month = '2026-02-01';</textarea></div><div class="out" hidden aria-live="polite"></div></div><p><code>refresh</code> で作り直します。<code>concurrently</code> を付けると、作り直している間も古い中身を読めます（一意インデックスが必要です）。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">refresh</span> <span class="k">materialized</span> <span class="k">view</span> <span class="k">concurrently</span> monthly_sales;
+<span class="k">select</span> <span class="o">*</span> <span class="k">from</span> monthly_sales <span class="k">where</span> <span class="k">month</span> <span class="o">=</span> <span class="s">'2026-02-01'</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="2">refresh materialized view concurrently monthly_sales;
+select * from monthly_sales where month = '2026-02-01';</textarea></div><div class="out" hidden aria-live="polite"></div></div><div class="table"><table><thead><tr><th></th><th>ビュー</th><th>マテリアライズドビュー</th></tr></thead><tbody><tr><td>データ</td><td>持たない</td><td>持つ（テーブルと同じくページに保存）</td></tr><tr><td>鮮度</td><td>常に最新</td><td><code>refresh</code> した時点</td></tr><tr><td>速さ</td><td>元の問い合わせと同じ</td><td>保存した結果を読むだけなので速い</td></tr><tr><td>インデックス</td><td>張れない</td><td>張れる</td></tr></tbody></table></div><h2 id="functions" data-sec="ch18#functions"><span class="h-no">18.3</span>関数<button type="button" class="done-btn" data-key="ch18#functions" aria-pressed="false" title="読了にする"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg><span>読了</span></button></h2><p>PostgreSQL では、自分で関数を作れます。最も簡単なのは、SQL で中身を書く<strong>SQL 関数</strong>です。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">function</span> <span class="f">tax_included</span>(price <span class="t">int</span>) <span class="k">returns</span> <span class="t">int</span>
+<span class="k">language</span> <span class="k">sql</span> <span class="k">immutable</span>
+<span class="k">return</span> <span class="f">round</span>(price <span class="o">*</span> <span class="n">1.1</span>);
+
+<span class="k">select</span> <span class="t">name</span>, price, <span class="f">tax_included</span>(price) <span class="k">as</span> 税込 <span class="k">from</span> products <span class="k">limit</span> <span class="n">4</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="5">create function tax_included(price int) returns int
+language sql immutable
+return round(price * 1.1);
+
+select name, price, tax_included(price) as 税込 from products limit 4;</textarea></div><div class="out" hidden aria-live="polite"></div></div><p>表を返す関数も作れます。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">function</span> <span class="f">orders_of</span>(cust <span class="t">int</span>)
+<span class="k">returns</span> <span class="k">table</span> (order_id <span class="t">int</span>, ordered_at <span class="t">timestamptz</span>, amount <span class="t">bigint</span>)
+<span class="k">language</span> <span class="k">sql</span> <span class="k">stable</span>
+<span class="k">as</span> <span class="s">$$</span>
+  <span class="k">select</span> o.id, o.ordered_at, <span class="f">sum</span>(oi.quantity <span class="o">*</span> oi.unit_price)
+  <span class="k">from</span> orders o <span class="k">join</span> order_items oi <span class="k">on</span> oi.order_id <span class="o">=</span> o.id
+  <span class="k">where</span> o.customer_id <span class="o">=</span> cust
+  <span class="k">group</span> <span class="k">by</span> o.id
+  <span class="k">order</span> <span class="k">by</span> o.ordered_at
+<span class="s">$$</span>;
+
+<span class="k">select</span> <span class="o">*</span> <span class="k">from</span> <span class="f">orders_of</span>(<span class="n">1</span>);
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="12">create function orders_of(cust int)
+returns table (order_id int, ordered_at timestamptz, amount bigint)
+language sql stable
+as $$
+  select o.id, o.ordered_at, sum(oi.quantity * oi.unit_price)
+  from orders o join order_items oi on oi.order_id = o.id
+  where o.customer_id = cust
+  group by o.id
+  order by o.ordered_at
+$$;
+
+select * from orders_of(1);</textarea></div><div class="out" hidden aria-live="polite"></div></div><p><code>$$ ... $$</code> は<strong>ドル引用符</strong>で、関数の本体のような長い文字列を、中の <code>'</code> をエスケープせずに書くための記法です。</p><h3 id="functions-1">揮発性</h3><p>関数には、同じ引数で呼んだときに同じ結果を返すかどうかの区分（<strong>揮発性</strong>）を付けます。プランナはこれを見て最適化します。</p><div class="table"><table><thead><tr><th>区分</th><th>意味</th><th>例</th></tr></thead><tbody><tr><td><code>immutable</code></td><td>引数が同じなら、いつ呼んでも同じ結果</td><td><code>lower()</code>、<code>tax_included()</code></td></tr><tr><td><code>stable</code></td><td>1 つの文の中では同じ結果。テーブルを読んでよい</td><td><code>now()</code>、<code>orders_of()</code></td></tr><tr><td><code>volatile</code>（既定）</td><td>呼ぶたびに結果が変わりうる。副作用があってよい</td><td><code>random()</code>、<code>nextval()</code></td></tr></tbody></table></div><p>式インデックス（第 14 章）や生成列に使えるのは <code>immutable</code> な関数だけです。間違って <code>immutable</code> を付けると、インデックスと実際の値が食い違う原因になるので注意します。</p><h2 id="plpgsql" data-sec="ch18#plpgsql"><span class="h-no">18.4</span>PL/pgSQL<button type="button" class="done-btn" data-key="ch18#plpgsql" aria-pressed="false" title="読了にする"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg><span>読了</span></button></h2><p>条件分岐やループが必要なときは、<strong>PL/pgSQL</strong> という手続き型の言語で関数を書きます。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">function</span> <span class="f">stock_label</span>(p_id <span class="t">int</span>) <span class="k">returns</span> <span class="t">text</span>
+<span class="k">language</span> <span class="k">plpgsql</span> <span class="k">stable</span>
+<span class="k">as</span> <span class="s">$$</span>
+<span class="k">declare</span>
+  v_stock <span class="t">int</span>;
+  v_name  <span class="t">text</span>;
+<span class="k">begin</span>
+  <span class="k">select</span> stock, <span class="t">name</span> <span class="k">into</span> v_stock, v_name <span class="k">from</span> products <span class="k">where</span> id <span class="o">=</span> p_id;
+  <span class="k">if</span> <span class="k">not</span> <span class="k">found</span> <span class="k">then</span>
+    <span class="k">raise</span> <span class="k">exception</span> <span class="s">'商品 % は存在しません'</span>, p_id <span class="k">using</span> errcode <span class="o">=</span> <span class="s">'no_data_found'</span>;
+  <span class="k">end</span> <span class="k">if</span>;
+
+  <span class="k">if</span> v_stock <span class="o">=</span> <span class="n">0</span> <span class="k">then</span>
+    <span class="k">return</span> v_name <span class="o">||</span> <span class="s">'：在庫切れ'</span>;
+  <span class="k">elsif</span> v_stock <span class="o">&lt;</span> <span class="n">10</span> <span class="k">then</span>
+    <span class="k">return</span> v_name <span class="o">||</span> <span class="s">'：残り '</span> <span class="o">||</span> v_stock <span class="o">||</span> <span class="s">' 個'</span>;
+  <span class="k">else</span>
+    <span class="k">return</span> v_name <span class="o">||</span> <span class="s">'：在庫あり'</span>;
+  <span class="k">end</span> <span class="k">if</span>;
+<span class="k">end</span>;
+<span class="s">$$</span>;
+
+<span class="k">select</span> <span class="f">stock_label</span>(id) <span class="k">from</span> products <span class="k">where</span> id <span class="k">in</span> (<span class="n">1</span>, <span class="n">2</span>, <span class="n">8</span>, <span class="n">3</span>);
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="23">create function stock_label(p_id int) returns text
+language plpgsql stable
+as $$
+declare
+  v_stock int;
+  v_name  text;
+begin
+  select stock, name into v_stock, v_name from products where id = p_id;
+  if not found then
+    raise exception '商品 % は存在しません', p_id using errcode = 'no_data_found';
+  end if;
+
+  if v_stock = 0 then
+    return v_name || '：在庫切れ';
+  elsif v_stock &lt; 10 then
+    return v_name || '：残り ' || v_stock || ' 個';
+  else
+    return v_name || '：在庫あり';
+  end if;
+end;
+$$;
+
+select stock_label(id) from products where id in (1, 2, 8, 3);</textarea></div><div class="out" hidden aria-live="polite"></div></div><div class="code sqlrun is-fail"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="code-badge is-fail">エラーになる</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">select</span> <span class="f">stock_label</span>(<span class="n">999</span>);
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="1">select stock_label(999);</textarea></div><div class="out" hidden aria-live="polite"></div></div><div class="table"><table><thead><tr><th>構文</th><th>意味</th></tr></thead><tbody><tr><td><code>declare</code></td><td>変数を宣言する</td></tr><tr><td><code>select ... into 変数</code></td><td>問い合わせの結果を変数に入れる</td></tr><tr><td><code>found</code></td><td>直前の SQL が 1 行以上を処理したか</td></tr><tr><td><code>if ... elsif ... else ... end if</code></td><td>条件分岐</td></tr><tr><td><code>for r in select ... loop ... end loop</code></td><td>問い合わせの結果を 1 行ずつ処理する</td></tr><tr><td><code>raise notice / exception</code></td><td>メッセージを出す / エラーにする</td></tr><tr><td><code>begin ... exception when ... then ... end</code></td><td>エラーを捕まえる</td></tr></tbody></table></div><p><code>raise notice</code> のメッセージは、実行結果の上に表示されます。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">do</span> <span class="s">$$</span>
+<span class="k">declare</span>
+  r <span class="t">record</span>;
+  total <span class="t">int</span> :<span class="o">=</span> <span class="n">0</span>;
+<span class="k">begin</span>
+  <span class="k">for</span> r <span class="k">in</span> <span class="k">select</span> <span class="t">name</span>, stock <span class="k">from</span> products <span class="k">order</span> <span class="k">by</span> stock <span class="k">desc</span> <span class="k">limit</span> <span class="n">3</span> <span class="k">loop</span>
+    <span class="k">raise</span> <span class="k">notice</span> <span class="s">'% は在庫 % 個'</span>, r.<span class="t">name</span>, r.stock;
+    total :<span class="o">=</span> total <span class="o">+</span> r.stock;
+  <span class="k">end</span> <span class="k">loop</span>;
+  <span class="k">raise</span> <span class="k">notice</span> <span class="s">'上位 3 商品の在庫の合計は % 個'</span>, total;
+<span class="k">end</span>;
+<span class="s">$$</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="12">do $$
+declare
+  r record;
+  total int := 0;
+begin
+  for r in select name, stock from products order by stock desc limit 3 loop
+    raise notice '% は在庫 % 個', r.name, r.stock;
+    total := total + r.stock;
+  end loop;
+  raise notice '上位 3 商品の在庫の合計は % 個', total;
+end;
+$$;</textarea></div><div class="out" hidden aria-live="polite"></div></div><p><code>do</code> は、名前のない関数をその場で 1 回だけ実行する文です。</p><h2 id="procedure" data-sec="ch18#procedure"><span class="h-no">18.5</span>プロシージャ<button type="button" class="done-btn" data-key="ch18#procedure" aria-pressed="false" title="読了にする"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg><span>読了</span></button></h2><p>関数は 1 つのトランザクションの中で動き、途中で <code>commit</code> できません。PostgreSQL 11 から入った<strong>プロシージャ</strong>は、<code>call</code> で呼び出し、中で <code>commit</code> や <code>rollback</code> ができます。大量のデータを少しずつ処理して、こまめにコミットしたいときに使います。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">table</span> <span class="f">archive_log</span> (id <span class="t">int</span>, archived_at <span class="t">timestamptz</span> <span class="k">default</span> <span class="f">now</span>());
+
+<span class="k">create</span> <span class="k">procedure</span> <span class="f">archive_in_batches</span>(batch <span class="t">int</span>)
+<span class="k">language</span> <span class="k">plpgsql</span>
+<span class="k">as</span> <span class="s">$$</span>
+<span class="k">declare</span>
+  n <span class="t">int</span>;
+<span class="k">begin</span>
+  <span class="k">loop</span>
+    <span class="k">insert</span> <span class="k">into</span> <span class="f">archive_log</span> (id)
+    <span class="k">select</span> id <span class="k">from</span> orders
+    <span class="k">where</span> id <span class="k">not</span> <span class="k">in</span> (<span class="k">select</span> id <span class="k">from</span> archive_log) <span class="k">and</span> status <span class="o">=</span> <span class="s">'shipped'</span>
+    <span class="k">order</span> <span class="k">by</span> id <span class="k">limit</span> batch;
+    get diagnostics n <span class="o">=</span> row_count;
+    <span class="k">exit</span> <span class="k">when</span> n <span class="o">=</span> <span class="n">0</span>;
+    <span class="k">raise</span> <span class="k">notice</span> <span class="s">'% 件をアーカイブ'</span>, n;
+    <span class="k">commit</span>;   <span class="c">-- ここまでを確定させる</span>
+  <span class="k">end</span> <span class="k">loop</span>;
+<span class="k">end</span>;
+<span class="s">$$</span>;
+
+<span class="k">call</span> <span class="f">archive_in_batches</span>(<span class="n">5</span>);
+<span class="k">select</span> <span class="f">count</span>(<span class="o">*</span>) <span class="k">from</span> archive_log;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="23">create table archive_log (id int, archived_at timestamptz default now());
+
+create procedure archive_in_batches(batch int)
+language plpgsql
+as $$
+declare
+  n int;
+begin
+  loop
+    insert into archive_log (id)
+    select id from orders
+    where id not in (select id from archive_log) and status = 'shipped'
+    order by id limit batch;
+    get diagnostics n = row_count;
+    exit when n = 0;
+    raise notice '% 件をアーカイブ', n;
+    commit;   -- ここまでを確定させる
+  end loop;
+end;
+$$;
+
+call archive_in_batches(5);
+select count(*) from archive_log;</textarea></div><div class="out" hidden aria-live="polite"></div></div><h2 id="trigger" data-sec="ch18#trigger"><span class="h-no">18.6</span>トリガ<button type="button" class="done-btn" data-key="ch18#trigger" aria-pressed="false" title="読了にする"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg><span>読了</span></button></h2><p><strong>トリガ</strong>は、テーブルへの INSERT・UPDATE・DELETE に反応して、自動で関数を実行する仕組みです。</p><figure class="fig"><div class="fig-body"><svg class="dg" viewBox="0 0 759.5 192" width="759.5" style="--w:759.5px;max-width:759.5px" role="img" aria-label="図" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f55-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1.2 L9 5 L1 8.8 Z" class="d-mk-accent"/></marker><marker id="f55-n" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1.2 L9 5 L1 8.8 Z" class="d-mk-ink"/></marker><marker id="f55-m" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1.2 L9 5 L1 8.8 Z" class="d-mk-muted"/></marker><marker id="f55-s" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1.2 L9 5 L1 8.8 Z" class="d-mk-steel"/></marker><marker id="f55-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1.2 L9 5 L1 8.8 Z" class="d-mk-sage"/></marker>
+  <pattern id="f55-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="d-hatch"/></pattern></defs><g transform="translate(48 27)"><path d="M75 24 L 176 24" class="d-edge d-edge-ink" marker-end="url(#f55-n)"/><path d="M278 24 L 379 24" class="d-edge d-edge-ink" marker-end="url(#f55-n)"/><path d="M481 24 L 575.5 24" class="d-edge d-edge-ink" marker-end="url(#f55-n)"/><path d="M633 53 L 633 84" class="d-edge d-edge-ink" marker-end="url(#f55-n)"/><path d="M582 114 L 481 114" class="d-edge d-edge-ink" marker-end="url(#f55-n)"/><g class="d-node d-node-muted"><rect x="-24" y="6" width="96" height="36" rx="9" class="d-nrect"/><text x="24" y="24" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">UPDATE 文</text></g><g class="d-node d-node-stack"><rect x="179" y="-3" width="96" height="54" rx="9" class="d-nrect"/><text x="227" y="15" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">BEFORE</text><text x="227" y="33" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">文トリガ</text></g><g class="d-node d-node-accent"><rect x="382" y="-3" width="96" height="54" rx="9" class="d-nrect"/><text x="430" y="15" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">BEFORE</text><text x="430" y="33" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">行トリガ</text></g><g class="d-node d-node-crate"><rect x="578.5" y="-2" width="109" height="52" rx="9" class="d-nrect"/><text x="633" y="16" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">行を書く</text><text x="633" y="35" class="d-small d-nsub" text-anchor="middle" dominant-baseline="central">制約のチェック</text></g><g class="d-node d-node-ext"><rect x="585" y="87" width="96" height="54" rx="9" class="d-nrect"/><text x="633" y="105" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">AFTER</text><text x="633" y="123" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">行トリガ</text></g><g class="d-node d-node-ext"><rect x="382" y="87" width="96" height="54" rx="9" class="d-nrect"/><text x="430" y="105" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">AFTER</text><text x="430" y="123" class=" d-nlabel" text-anchor="middle" dominant-baseline="central">文トリガ</text></g><rect x="505.8" y="14" width="45" height="20" rx="5" class="d-elabel-bg"/><text x="528.3" y="24" class="d-small  d-elabel " text-anchor="middle" dominant-baseline="central">行ごと</text><rect x="498" y="104" width="67" height="20" rx="5" class="d-elabel-bg"/><text x="531.5" y="114" class="d-small  d-elabel " text-anchor="middle" dominant-baseline="central">文の終わり</text></g></svg></div><figcaption><span class="fig-no">図 18-1</span><span>トリガが動くタイミング。BEFORE トリガは行を書き換えたり、処理を取りやめたりできる。AFTER トリガは結果を見て、別のテーブルへの記録などを行う</span></figcaption></figure><div class="table"><table><thead><tr><th>種類</th><th>動く回数</th><th>できること</th></tr></thead><tbody><tr><td><code>before ... for each row</code></td><td>1 行ごと</td><td><code>new</code> を書き換える。<code>null</code> を返すとその行の処理を取りやめる</td></tr><tr><td><code>after ... for each row</code></td><td>1 行ごと</td><td><code>old</code> と <code>new</code> を見て、別の表に記録する</td></tr><tr><td><code>before / after ... for each statement</code></td><td>1 文に 1 回</td><td>文全体の前後の処理</td></tr><tr><td><code>instead of ... for each row</code></td><td>1 行ごと</td><td>ビューへの変更を、元の表への変更に置き換える</td></tr></tbody></table></div><h3 id="trigger-1">更新日時を自動で記録する</h3><p>最もよく使われるトリガが、<code>updated_at</code> 列を自動で更新するものです。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">alter</span> <span class="k">table</span> products <span class="k">add</span> <span class="k">column</span> updated_at <span class="t">timestamptz</span> <span class="k">not</span> <span class="k">null</span> <span class="k">default</span> <span class="f">now</span>();
+
+<span class="k">create</span> <span class="k">function</span> <span class="f">set_updated_at</span>() <span class="k">returns</span> <span class="t">trigger</span>
+<span class="k">language</span> <span class="k">plpgsql</span>
+<span class="k">as</span> <span class="s">$$</span>
+<span class="k">begin</span>
+  <span class="k">new</span>.updated_at :<span class="o">=</span> <span class="f">now</span>();   <span class="c">-- 書き込まれる行（new）を書き換える</span>
+  <span class="k">return</span> <span class="k">new</span>;
+<span class="k">end</span>;
+<span class="s">$$</span>;
+
+<span class="k">create</span> <span class="t">trigger</span> products_updated_at
+<span class="k">before</span> <span class="k">update</span> <span class="k">on</span> products
+<span class="k">for</span> <span class="k">each</span> <span class="k">row</span> <span class="k">execute</span> <span class="k">function</span> <span class="f">set_updated_at</span>();
+
+<span class="k">select</span> <span class="f">pg_sleep</span>(<span class="n">1</span>);
+<span class="k">update</span> products <span class="k">set</span> price <span class="o">=</span> price <span class="o">+</span> <span class="n">10</span> <span class="k">where</span> id <span class="o">=</span> <span class="n">3</span>;
+<span class="k">select</span> id, <span class="t">name</span>, price, updated_at <span class="k">from</span> products <span class="k">where</span> id <span class="k">in</span> (<span class="n">3</span>, <span class="n">4</span>);
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="18">alter table products add column updated_at timestamptz not null default now();
+
+create function set_updated_at() returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();   -- 書き込まれる行（new）を書き換える
+  return new;
+end;
+$$;
+
+create trigger products_updated_at
+before update on products
+for each row execute function set_updated_at();
+
+select pg_sleep(1);
+update products set price = price + 10 where id = 3;
+select id, name, price, updated_at from products where id in (3, 4);</textarea></div><div class="out" hidden aria-live="polite"></div></div><p>id 3 だけ、<code>updated_at</code> が 1 秒進んでいます。アプリケーションのどこから UPDATE しても、更新日時の付け忘れが起きません。</p><h3 id="trigger-2">変更の履歴を残す</h3><p>AFTER トリガで、変更前と変更後の行を JSON にして、履歴の表に記録します。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">table</span> <span class="f">audit_log</span> (
+  id        <span class="t">bigint</span> <span class="k">generated</span> <span class="k">always</span> <span class="k">as</span> <span class="k">identity</span> <span class="k">primary</span> <span class="k">key</span>,
+  table_name <span class="t">text</span> <span class="k">not</span> <span class="k">null</span>,
+  op        <span class="t">text</span> <span class="k">not</span> <span class="k">null</span>,
+  old_row   <span class="t">jsonb</span>,
+  new_row   <span class="t">jsonb</span>,
+  <span class="k">at</span>        <span class="t">timestamptz</span> <span class="k">not</span> <span class="k">null</span> <span class="k">default</span> <span class="f">now</span>()
+);
+
+<span class="k">create</span> <span class="k">function</span> <span class="f">audit</span>() <span class="k">returns</span> <span class="t">trigger</span>
+<span class="k">language</span> <span class="k">plpgsql</span>
+<span class="k">as</span> <span class="s">$$</span>
+<span class="k">begin</span>
+  <span class="k">insert</span> <span class="k">into</span> <span class="f">audit_log</span> (table_name, op, old_row, new_row)
+  <span class="k">values</span> (tg_table_name, tg_op,
+          <span class="k">case</span> <span class="k">when</span> tg_op <span class="o">&lt;&gt;</span> <span class="s">'INSERT'</span> <span class="k">then</span> <span class="f">to_jsonb</span>(<span class="k">old</span>) <span class="k">end</span>,
+          <span class="k">case</span> <span class="k">when</span> tg_op <span class="o">&lt;&gt;</span> <span class="s">'DELETE'</span> <span class="k">then</span> <span class="f">to_jsonb</span>(<span class="k">new</span>) <span class="k">end</span>);
+  <span class="k">return</span> <span class="k">null</span>;   <span class="c">-- AFTER トリガの戻り値は使われない</span>
+<span class="k">end</span>;
+<span class="s">$$</span>;
+
+<span class="k">create</span> <span class="t">trigger</span> customers_audit
+<span class="k">after</span> <span class="k">insert</span> <span class="k">or</span> <span class="k">update</span> <span class="k">or</span> <span class="k">delete</span> <span class="k">on</span> customers
+<span class="k">for</span> <span class="k">each</span> <span class="k">row</span> <span class="k">execute</span> <span class="k">function</span> <span class="f">audit</span>();
+
+<span class="k">update</span> customers <span class="k">set</span> prefecture <span class="o">=</span> <span class="s">'神奈川県'</span> <span class="k">where</span> id <span class="o">=</span> <span class="n">1</span>;
+<span class="k">select</span> op, old_row <span class="o">-&gt;&gt;</span> <span class="s">'prefecture'</span> <span class="k">as</span> 変更前, new_row <span class="o">-&gt;&gt;</span> <span class="s">'prefecture'</span> <span class="k">as</span> 変更後, <span class="k">at</span> <span class="k">from</span> audit_log;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="27">create table audit_log (
+  id        bigint generated always as identity primary key,
+  table_name text not null,
+  op        text not null,
+  old_row   jsonb,
+  new_row   jsonb,
+  at        timestamptz not null default now()
+);
+
+create function audit() returns trigger
+language plpgsql
+as $$
+begin
+  insert into audit_log (table_name, op, old_row, new_row)
+  values (tg_table_name, tg_op,
+          case when tg_op &lt;&gt; 'INSERT' then to_jsonb(old) end,
+          case when tg_op &lt;&gt; 'DELETE' then to_jsonb(new) end);
+  return null;   -- AFTER トリガの戻り値は使われない
+end;
+$$;
+
+create trigger customers_audit
+after insert or update or delete on customers
+for each row execute function audit();
+
+update customers set prefecture = '神奈川県' where id = 1;
+select op, old_row -&gt;&gt; 'prefecture' as 変更前, new_row -&gt;&gt; 'prefecture' as 変更後, at from audit_log;</textarea></div><div class="out" hidden aria-live="polite"></div></div><p><code>tg_table_name</code>、<code>tg_op</code> はトリガ関数の中で使える特別な変数で、どの表のどの操作で呼ばれたかが入っています。</p><h3 id="trigger-3">業務ルールを守らせる</h3><p>BEFORE トリガで、制約では書きにくいルールを守らせることもできます。「注文の明細を追加したら、商品の在庫を減らす。在庫が足りなければ拒否する」をやってみます。</p><div class="code sqlrun"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">function</span> <span class="f">reserve_stock</span>() <span class="k">returns</span> <span class="t">trigger</span>
+<span class="k">language</span> <span class="k">plpgsql</span>
+<span class="k">as</span> <span class="s">$$</span>
+<span class="k">begin</span>
+  <span class="k">update</span> products <span class="k">set</span> stock <span class="o">=</span> stock <span class="o">-</span> <span class="k">new</span>.quantity
+  <span class="k">where</span> id <span class="o">=</span> <span class="k">new</span>.product_id <span class="k">and</span> stock <span class="o">&gt;=</span> <span class="k">new</span>.quantity;
+  <span class="k">if</span> <span class="k">not</span> <span class="k">found</span> <span class="k">then</span>
+    <span class="k">raise</span> <span class="k">exception</span> <span class="s">'在庫が足りません（商品 %、必要数 %）'</span>, <span class="k">new</span>.product_id, <span class="k">new</span>.quantity
+      <span class="k">using</span> errcode <span class="o">=</span> <span class="s">'check_violation'</span>;
+  <span class="k">end</span> <span class="k">if</span>;
+  <span class="k">return</span> <span class="k">new</span>;
+<span class="k">end</span>;
+<span class="s">$$</span>;
+
+<span class="k">create</span> <span class="t">trigger</span> order_items_reserve
+<span class="k">before</span> <span class="k">insert</span> <span class="k">on</span> order_items
+<span class="k">for</span> <span class="k">each</span> <span class="k">row</span> <span class="k">execute</span> <span class="k">function</span> <span class="f">reserve_stock</span>();
+
+<span class="k">insert</span> <span class="k">into</span> orders <span class="k">values</span> (<span class="n">31</span>, <span class="n">2</span>, <span class="f">now</span>(), <span class="s">'pending'</span>);
+<span class="k">insert</span> <span class="k">into</span> order_items <span class="k">values</span> (<span class="n">31</span>, <span class="n">10</span>, <span class="n">2</span>, <span class="n">3500</span>);   <span class="c">-- ガラスペン 在庫 5 → 3</span>
+<span class="k">select</span> id, <span class="t">name</span>, stock <span class="k">from</span> products <span class="k">where</span> id <span class="o">=</span> <span class="n">10</span>;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="21">create function reserve_stock() returns trigger
+language plpgsql
+as $$
+begin
+  update products set stock = stock - new.quantity
+  where id = new.product_id and stock &gt;= new.quantity;
+  if not found then
+    raise exception '在庫が足りません（商品 %、必要数 %）', new.product_id, new.quantity
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger order_items_reserve
+before insert on order_items
+for each row execute function reserve_stock();
+
+insert into orders values (31, 2, now(), 'pending');
+insert into order_items values (31, 10, 2, 3500);   -- ガラスペン 在庫 5 → 3
+select id, name, stock from products where id = 10;</textarea></div><div class="out" hidden aria-live="polite"></div></div><div class="code sqlrun is-fail"><div class="code-h"><span class="code-file is-lang">SQL</span><span class="code-badge is-fail">エラーになる</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">insert</span> <span class="k">into</span> order_items <span class="k">values</span> (<span class="n">31</span>, <span class="n">2</span>, <span class="n">99</span>, <span class="n">12000</span>);  <span class="c">-- 在庫 3 の万年筆を 99 本</span>
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="1">insert into order_items values (31, 2, 99, 12000);  -- 在庫 3 の万年筆を 99 本</textarea></div><div class="out" hidden aria-live="polite"></div></div><aside class="callout is-warn"><div class="callout-h">注意<span>トリガは見えないロジック</span></div><p>トリガは強力ですが、SQL を書いた人からは動いていることが見えません。「UPDATE したら、なぜか別の表も変わった」という混乱の元になります。</p><ul><li>更新日時、監査ログ、非正規化した値の同期など、<strong>機械的で例外のない処理</strong>に使う</li><li>業務の判断（割引の計算、通知の送信）は、アプリケーションに置く</li><li>トリガの中でトリガを呼ぶ連鎖は避ける</li></ul></aside><aside class="try"><div class="try-h">やってみよう</div><ol><li><code>products</code> の価格が変わったときだけ、<code>price_history</code>（product_id, old_price, new_price, changed_at）に記録するトリガを作ってください（ヒント：<code>when (old.price is distinct from new.price)</code> をトリガに付けると、価格が変わったときだけ動きます）</li><li><code>order_summary</code> ビューを使って、顧客ごとの合計金額を出してください</li></ol></aside><div class="code sqlrun"><div class="code-h"><span class="code-file">練習用</span><span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="SQL をコピー">コピー</button><button type="button" class="run-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>実行</span></button></div><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="k">create</span> <span class="k">table</span> <span class="f">price_history</span> (product_id <span class="t">int</span>, old_price <span class="t">int</span>, new_price <span class="t">int</span>, changed_at <span class="t">timestamptz</span> <span class="k">default</span> <span class="f">now</span>());
+<span class="k">create</span> <span class="k">function</span> <span class="f">log_price</span>() <span class="k">returns</span> <span class="t">trigger</span> <span class="k">language</span> <span class="k">plpgsql</span> <span class="k">as</span> <span class="s">$$</span>
+<span class="k">begin</span>
+  <span class="k">insert</span> <span class="k">into</span> <span class="f">price_history</span> (product_id, old_price, new_price) <span class="k">values</span> (<span class="k">new</span>.id, <span class="k">old</span>.price, <span class="k">new</span>.price);
+  <span class="k">return</span> <span class="k">null</span>;
+<span class="k">end</span>; <span class="s">$$</span>;
+<span class="k">create</span> <span class="t">trigger</span> products_price_log <span class="k">after</span> <span class="k">update</span> <span class="k">of</span> price <span class="k">on</span> products
+<span class="k">for</span> <span class="k">each</span> <span class="k">row</span> <span class="k">when</span> (<span class="k">old</span>.price <span class="k">is</span> <span class="k">distinct</span> <span class="k">from</span> <span class="k">new</span>.price) <span class="k">execute</span> <span class="k">function</span> <span class="f">log_price</span>();
+<span class="k">update</span> products <span class="k">set</span> price <span class="o">=</span> price <span class="o">+</span> <span class="n">100</span> <span class="k">where</span> id <span class="k">in</span> (<span class="n">1</span>, <span class="n">2</span>);
+<span class="k">update</span> products <span class="k">set</span> stock <span class="o">=</span> stock <span class="o">+</span> <span class="n">1</span> <span class="k">where</span> id <span class="o">=</span> <span class="n">3</span>;   <span class="c">-- 価格は変わらないので記録されない</span>
+<span class="k">select</span> <span class="o">*</span> <span class="k">from</span> price_history;
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="SQL を編集して実行できます" rows="11">create table price_history (product_id int, old_price int, new_price int, changed_at timestamptz default now());
+create function log_price() returns trigger language plpgsql as $$
+begin
+  insert into price_history (product_id, old_price, new_price) values (new.id, old.price, new.price);
+  return null;
+end; $$;
+create trigger products_price_log after update of price on products
+for each row when (old.price is distinct from new.price) execute function log_price();
+update products set price = price + 100 where id in (1, 2);
+update products set stock = stock + 1 where id = 3;   -- 価格は変わらないので記録されない
+select * from price_history;</textarea></div><div class="out" hidden aria-live="polite"></div></div><aside class="callout is-key"><div class="callout-h">要点<span>この章のまとめ</span></div><ul><li>ビューは SELECT に付けた名前。展開されてから計画されるので遅くならない。<code>with check option</code> で条件外の変更を防ぐ</li><li>マテリアライズドビューは結果を保存する。<code>refresh ... concurrently</code> で読みを止めずに更新</li><li>関数は SQL か PL/pgSQL で書く。揮発性（immutable / stable / volatile）を正しく付ける</li><li>プロシージャは <code>call</code> で呼び、中で <code>commit</code> できる</li><li>トリガは変更に反応して動く。BEFORE で行を書き換え、AFTER で記録する。見えないロジックなので使いどころを絞る</li></ul></aside><h2 id="quiz" data-sec="ch18#quiz"><span class="h-no">18.7</span>確認問題<button type="button" class="done-btn" data-key="ch18#quiz" aria-pressed="false" title="読了にする"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg><span>読了</span></button></h2><p>この章で学んだことを使って、自分で SQL を書いてみましょう。「答え合わせ」を押すと、出力が模範解答と同じになっているかを判定します。列名や行の順番は（順番を指定した問題を除いて）問いません。答え合わせは本文とは別のデータベースで毎回取り消しながら行うので、何度でも試せます。</p><section class="qz" data-qid="ch18-1"><div class="qz-h"><span class="qz-no">問 1</span><h3 class="qz-t">顧客ごとの注文回数のビュー</h3><span class="qz-mark" hidden>正解済み</span></div><div class="qz-q"><p>顧客の名前と注文回数（キャンセルも含む。注文のない顧客は 0）を返すビュー <code>customer_order_counts</code> を作ってください。</p></div><div class="code qz-box"><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="c">-- ここに SQL を書いて「答え合わせ」（Ctrl / ⌘ + Enter）</span>
+
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="問 1 の答えの SQL" rows="3">-- ここに SQL を書いて「答え合わせ」（Ctrl / ⌘ + Enter）
+</textarea></div><div class="qz-bar"><button type="button" class="run-btn qz-check"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>答え合わせ</span></button><span class="run-key" title="Ctrl または ⌘ + Enter でも答え合わせできます">⌘↵</span><span class="qz-rule">実行後のテーブルの中身で判定</span></div><div class="qz-res" hidden aria-live="polite"></div></div><div class="qz-more"><details class="qz-fold"><summary>ヒント</summary><div class="qz-fold-b"><p>注文のない顧客も 0 で出すには <code>left join</code> して、<code>count(*)</code> ではなく <code>count(o.id)</code> で数えます。</p></div></details><details class="qz-fold qz-ans"><summary>模範解答</summary><div class="qz-fold-b"><div class="code"><pre><code><span class="ln"><span class="k">create</span> <span class="k">view</span> customer_order_counts <span class="k">as</span></span><span class="ln"><span class="k">select</span> c.<span class="t">name</span>, <span class="f">count</span>(o.id) <span class="k">as</span> orders</span><span class="ln"><span class="k">from</span> customers c</span><span class="ln"><span class="k">left</span> <span class="k">join</span> orders o <span class="k">on</span> o.customer_id <span class="o">=</span> c.id</span><span class="ln"><span class="k">group</span> <span class="k">by</span> c.id, c.<span class="t">name</span>;</span></code></pre></div><p class="qz-note">答え合わせでは、実行したあとに次の SQL で中身を調べて比べています。</p><div class="code"><pre><code><span class="ln"><span class="k">select</span> <span class="o">*</span> <span class="k">from</span> customer_order_counts;</span></code></pre></div></div></details></div><script type="application/json" class="qz-data">{"a":"create view customer_order_counts as\nselect c.name, count(o.id) as orders\nfrom customers c\nleft join orders o on o.customer_id = c.id\ngroup by c.id, c.name;","c":"select * from customer_order_counts;","p":"","o":false}</script></section><section class="qz" data-qid="ch18-2"><div class="qz-h"><span class="qz-no">問 2</span><h3 class="qz-t">税込み価格の関数</h3><span class="qz-mark" hidden>正解済み</span></div><div class="qz-q"><p>整数の価格を受け取り、10% の消費税を足して<strong>四捨五入した</strong>整数を返す関数 <code>with_tax(price int)</code> を作ってください。</p></div><div class="code qz-box"><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="c">-- ここに SQL を書いて「答え合わせ」（Ctrl / ⌘ + Enter）</span>
+
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="問 2 の答えの SQL" rows="3">-- ここに SQL を書いて「答え合わせ」（Ctrl / ⌘ + Enter）
+</textarea></div><div class="qz-bar"><button type="button" class="run-btn qz-check"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>答え合わせ</span></button><span class="run-key" title="Ctrl または ⌘ + Enter でも答え合わせできます">⌘↵</span><span class="qz-rule">実行後のテーブルの中身で判定</span></div><div class="qz-res" hidden aria-live="polite"></div></div><div class="qz-more"><details class="qz-fold"><summary>ヒント 1</summary><div class="qz-fold-b"><p><code>create function 名前(引数 型) returns 型 language sql immutable return 式;</code></p></div></details><details class="qz-fold"><summary>ヒント 2</summary><div class="qz-fold-b"><p>455 × 1.1 = 500.5 は 501 になります。整数の割り算（切り捨て）では 500 になってしまいます。</p></div></details><details class="qz-fold qz-ans"><summary>模範解答</summary><div class="qz-fold-b"><div class="code"><pre><code><span class="ln"><span class="k">create</span> <span class="k">function</span> <span class="f">with_tax</span>(price <span class="t">int</span>) <span class="k">returns</span> <span class="t">int</span></span><span class="ln"><span class="k">language</span> <span class="k">sql</span> <span class="k">immutable</span></span><span class="ln"><span class="k">return</span> <span class="f">round</span>(price <span class="o">*</span> <span class="n">1.1</span>);</span></code></pre></div><p class="qz-note">答え合わせでは、実行したあとに次の SQL で中身を調べて比べています。</p><div class="code"><pre><code><span class="ln"><span class="k">select</span> <span class="f">with_tax</span>(<span class="n">180</span>) <span class="k">as</span> a, <span class="f">with_tax</span>(<span class="n">12000</span>) <span class="k">as</span> b, <span class="f">with_tax</span>(<span class="n">455</span>) <span class="k">as</span> c;</span></code></pre></div></div></details></div><script type="application/json" class="qz-data">{"a":"create function with_tax(price int) returns int\nlanguage sql immutable\nreturn round(price * 1.1);","c":"select with_tax(180) as a, with_tax(12000) as b, with_tax(455) as c;","p":"","o":false}</script></section><section class="qz" data-qid="ch18-3"><div class="qz-h"><span class="qz-no">問 3</span><h3 class="qz-t">価格の変更を記録するトリガ</h3><span class="qz-mark" hidden>正解済み</span></div><div class="qz-q"><p><code>price_history</code>（<code>product_id</code>, <code>old_price</code>, <code>new_price</code>）が用意されています。<code>products</code> の<strong>価格が変わったときだけ</strong>、変更前と変更後の価格を <code>price_history</code> に記録するトリガを作ってください。価格以外の列だけが変わった UPDATE では記録しません。</p></div><div class="code qz-box"><div class="ed"><pre class="ed-hl" aria-hidden="true"><code><span class="c">-- ここに SQL を書いて「答え合わせ」（Ctrl / ⌘ + Enter）</span>
+
+</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="問 3 の答えの SQL" rows="3">-- ここに SQL を書いて「答え合わせ」（Ctrl / ⌘ + Enter）
+</textarea></div><div class="qz-bar"><button type="button" class="run-btn qz-check"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z"/></svg><span>答え合わせ</span></button><span class="run-key" title="Ctrl または ⌘ + Enter でも答え合わせできます">⌘↵</span><span class="qz-rule">実行後のテーブルの中身で判定</span></div><div class="qz-res" hidden aria-live="polite"></div></div><div class="qz-more"><details class="qz-fold"><summary>ヒント 1</summary><div class="qz-fold-b"><p>トリガ関数（<code>returns trigger</code>）を作ってから、<code>create trigger ... after update on products for each row execute function ...</code> で結び付けます。</p></div></details><details class="qz-fold"><summary>ヒント 2</summary><div class="qz-fold-b"><p>「価格が変わったときだけ」は、トリガに <code>when (old.price is distinct from new.price)</code> を付けるか、関数の中で <code>if</code> で調べます。</p></div></details><details class="qz-fold qz-ans"><summary>模範解答</summary><div class="qz-fold-b"><div class="code"><pre><code><span class="ln"><span class="k">create</span> <span class="k">function</span> <span class="f">log_price</span>() <span class="k">returns</span> <span class="t">trigger</span></span><span class="ln"><span class="k">language</span> <span class="k">plpgsql</span> <span class="k">as</span> <span class="s">$$</span></span><span class="ln"><span class="k">begin</span></span><span class="ln">  <span class="k">insert</span> <span class="k">into</span> <span class="f">price_history</span> (product_id, old_price, new_price)</span><span class="ln">  <span class="k">values</span> (<span class="k">new</span>.id, <span class="k">old</span>.price, <span class="k">new</span>.price);</span><span class="ln">  <span class="k">return</span> <span class="k">new</span>;</span><span class="ln"><span class="k">end</span> <span class="s">$$</span>;</span><span class="ln"> </span><span class="ln"><span class="k">create</span> <span class="t">trigger</span> products_price_log</span><span class="ln"><span class="k">after</span> <span class="k">update</span> <span class="k">on</span> products</span><span class="ln"><span class="k">for</span> <span class="k">each</span> <span class="k">row</span></span><span class="ln"><span class="k">when</span> (<span class="k">old</span>.price <span class="k">is</span> <span class="k">distinct</span> <span class="k">from</span> <span class="k">new</span>.price)</span><span class="ln"><span class="k">execute</span> <span class="k">function</span> <span class="f">log_price</span>();</span></code></pre></div><p class="qz-note">答え合わせでは、実行したあとに次の SQL で中身を調べて比べています。</p><div class="code"><pre><code><span class="ln"><span class="k">update</span> products <span class="k">set</span> price <span class="o">=</span> price <span class="o">+</span> <span class="n">100</span> <span class="k">where</span> id <span class="k">in</span> (<span class="n">1</span>, <span class="n">3</span>);</span><span class="ln"><span class="k">update</span> products <span class="k">set</span> stock <span class="o">=</span> stock <span class="o">-</span> <span class="n">1</span> <span class="k">where</span> id <span class="o">=</span> <span class="n">5</span>;</span><span class="ln"><span class="k">select</span> product_id, old_price, new_price <span class="k">from</span> price_history <span class="k">order</span> <span class="k">by</span> product_id;</span></code></pre></div></div></details></div><script type="application/json" class="qz-data">{"a":"create function log_price() returns trigger\nlanguage plpgsql as $$\nbegin\n  insert into price_history (product_id, old_price, new_price)\n  values (new.id, old.price, new.price);\n  return new;\nend $$;\n\ncreate trigger products_price_log\nafter update on products\nfor each row\nwhen (old.price is distinct from new.price)\nexecute function log_price();","c":"update products set price = price + 100 where id in (1, 3);\nupdate products set stock = stock - 1 where id = 5;\nselect product_id, old_price, new_price from price_history order by product_id;","p":"create table price_history (product_id int, old_price int, new_price int);","o":false}</script></section>
+  <nav class="pager"><a class="pg prev" href="ch17.html"><span class="pg-k"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>前へ</span><span class="pg-t">17章　ロックと同時実行</span></a><a class="pg next" href="ch19.html"><span class="pg-k">次へ<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span><span class="pg-t">19章　JSON・全文検索・拡張機能</span></a></nav>
+</article></main>
+  <aside class="toc"><div class="toc-h">この章</div><ol><li><a href="#view"><span class="toc-no">18.1</span>ビュー</a></li><li><a href="#matview"><span class="toc-no">18.2</span>マテリアライズドビュー</a></li><li><a href="#functions"><span class="toc-no">18.3</span>関数</a></li><li><a href="#plpgsql"><span class="toc-no">18.4</span>PL/pgSQL</a></li><li><a href="#procedure"><span class="toc-no">18.5</span>プロシージャ</a></li><li><a href="#trigger"><span class="toc-no">18.6</span>トリガ</a></li><li><a href="#quiz"><span class="toc-no">18.7</span>確認問題</a></li></ol></aside>
+</div>
+<script type="application/json" id="pg-setup">{"sql":"-- 文具店「つばめ文具」のサンプルデータベース\n-- 各章の「実行」ボタンを初めて押したとき、ブラウザの中の PostgreSQL にこれが流し込まれる。\n\ncreate table categories (\n  id        int primary key,\n  name      text not null,\n  parent_id int references categories(id)\n);\n\ninsert into categories values\n  (1, '筆記具', null),\n  (2, '万年筆', 1),\n  (3, 'ボールペン', 1),\n  (4, '鉛筆', 1),\n  (5, '紙製品', null),\n  (6, 'ノート', 5),\n  (7, '手帳', 5),\n  (8, '雑貨', null),\n  (9, 'インク', 1);\n\ncreate table products (\n  id          int primary key,\n  name        text not null,\n  category_id int not null references categories(id),\n  price       int not null check (price >= 0),\n  stock       int not null default 0,\n  released_on date,\n  tags        text[] not null default '{}',\n  attrs       jsonb not null default '{}'\n);\n\ninsert into products values\n  (1,  'つばめ万年筆 細字',        2, 12000, 8,   '2021-04-01', '{定番,ギフト}',      '{\"nib\": \"F\", \"color\": \"黒\"}'),\n  (2,  'つばめ万年筆 中字',        2, 12000, 3,   '2021-04-01', '{定番,ギフト}',      '{\"nib\": \"M\", \"color\": \"紺\"}'),\n  (3,  'さらさらボールペン 0.5',   3, 180,   120, '2019-09-10', '{定番}',             '{\"size\": 0.5, \"color\": \"黒\"}'),\n  (4,  'さらさらボールペン 0.7',   3, 180,   95,  '2019-09-10', '{定番}',             '{\"size\": 0.7, \"color\": \"青\"}'),\n  (5,  '製図用鉛筆 HB',            4, 150,   200, '2018-02-15', '{}',                 '{\"hardness\": \"HB\"}'),\n  (6,  '方眼ノート A5',            6, 450,   60,  '2020-01-20', '{定番,方眼}',        '{\"size\": \"A5\", \"pages\": 80}'),\n  (7,  '方眼ノート B5',            6, 520,   45,  '2020-01-20', '{方眼}',             '{\"size\": \"B5\", \"pages\": 80}'),\n  (8,  '無地ノート A5',            6, 420,   0,   '2022-06-01', '{}',                 '{\"size\": \"A5\", \"pages\": 96}'),\n  (9,  '2026年 手帳 マンスリー',   7, 1800,  30,  '2025-09-01', '{季節}',             '{\"year\": 2026, \"type\": \"monthly\"}'),\n  (10, 'ガラスペン',               8, 3500,  5,   '2023-11-11', '{ギフト}',           '{\"material\": \"glass\"}'),\n  (11, 'ボトルインク 夜空',        9, 2200,  14,  '2022-03-03', '{ギフト,限定}',      '{\"ml\": 50, \"color\": \"青黒\"}'),\n  (12, '真鍮クリップ',             8, 600,   40,  '2024-05-05', '{}',                 '{\"material\": \"brass\"}'),\n  (13, '水彩色鉛筆 24色',          4, 4800,  12,  '2026-03-01', '{新商品}',           '{\"colors\": 24}');\n\ncreate table customers (\n  id         int primary key,\n  name       text not null,\n  email      text not null unique,\n  prefecture text not null,\n  joined_on  date not null,\n  birth_year int\n);\n\ninsert into customers values\n  (1,  '佐藤 葵',   'aoi@example.com',     '東京都', '2023-01-15', 1990),\n  (2,  '鈴木 蓮',   'ren@example.com',     '大阪府', '2023-03-02', 1985),\n  (3,  '高橋 陽菜', 'hina@example.com',    '東京都', '2023-06-21', null),\n  (4,  '田中 湊',   'minato@example.com',  '福岡県', '2023-11-30', 2001),\n  (5,  '伊藤 結衣', 'yui@example.com',     '北海道', '2024-02-14', 1978),\n  (6,  '渡辺 大翔', 'hiroto@example.com',  '大阪府', '2024-04-01', 1995),\n  (7,  '山本 芽依', 'mei@example.com',     '愛知県', '2024-08-08', null),\n  (8,  '中村 悠真', 'yuma@example.com',    '東京都', '2025-01-10', 1988),\n  (9,  '小林 さくら','sakura@example.com', '京都府', '2025-05-05', 2003),\n  (10, '加藤 樹',   'itsuki@example.com',  '東京都', '2025-10-01', 1970);\n\ncreate table orders (\n  id          int primary key,\n  customer_id int not null references customers(id),\n  ordered_at  timestamptz not null,\n  status      text not null check (status in ('pending', 'paid', 'shipped', 'cancelled'))\n);\n\ninsert into orders values\n  (1,  1, '2025-01-05 10:12+09', 'shipped'),\n  (2,  2, '2025-01-18 21:40+09', 'shipped'),\n  (3,  1, '2025-02-02 09:05+09', 'shipped'),\n  (4,  3, '2025-02-14 13:30+09', 'shipped'),\n  (5,  4, '2025-03-01 18:22+09', 'cancelled'),\n  (6,  5, '2025-03-20 08:45+09', 'shipped'),\n  (7,  2, '2025-04-11 12:00+09', 'shipped'),\n  (8,  6, '2025-05-03 15:15+09', 'shipped'),\n  (9,  1, '2025-05-28 20:20+09', 'shipped'),\n  (10, 7, '2025-06-30 11:11+09', 'shipped'),\n  (11, 3, '2025-07-07 07:07+09', 'shipped'),\n  (12, 8, '2025-08-15 16:40+09', 'shipped'),\n  (13, 2, '2025-09-09 19:30+09', 'shipped'),\n  (14, 9, '2025-10-10 10:10+09', 'shipped'),\n  (15, 4, '2025-11-03 14:00+09', 'shipped'),\n  (16, 1, '2025-12-12 22:22+09', 'shipped'),\n  (17, 6, '2026-01-04 09:30+09', 'paid'),\n  (18, 8, '2026-01-20 13:45+09', 'paid'),\n  (19, 5, '2026-02-01 10:00+09', 'pending'),\n  (20, 9, '2026-02-03 17:50+09', 'pending');\n\ncreate table order_items (\n  order_id   int not null references orders(id),\n  product_id int not null references products(id),\n  quantity   int not null check (quantity > 0),\n  unit_price int not null,\n  primary key (order_id, product_id)\n);\n\ninsert into order_items values\n  (1, 1, 1, 12000), (1, 11, 1, 2200),\n  (2, 3, 5, 180),   (2, 6, 2, 450),\n  (3, 6, 3, 450),   (3, 5, 10, 150),\n  (4, 9, 1, 1800),\n  (5, 10, 1, 3500),\n  (6, 2, 1, 12000), (6, 11, 2, 2200), (6, 12, 1, 600),\n  (7, 4, 3, 180),   (7, 7, 2, 520),\n  (8, 3, 10, 180),\n  (9, 9, 1, 1800),  (9, 6, 1, 450),\n  (10, 10, 1, 3500),(10, 11, 1, 2200),\n  (11, 6, 2, 450),  (11, 3, 2, 180),\n  (12, 1, 1, 12000),\n  (13, 5, 12, 150), (13, 7, 1, 520),\n  (14, 8, 3, 420),  (14, 3, 1, 180),\n  (15, 9, 2, 1800),\n  (16, 11, 1, 2200),(16, 12, 2, 600), (16, 10, 1, 3500),\n  (17, 6, 4, 450),\n  (18, 2, 1, 12000),(18, 4, 2, 180),\n  (19, 9, 1, 1700),\n  (20, 1, 1, 12000),(20, 6, 1, 450);\n\ncreate table employees (\n  id         int primary key,\n  name       text not null,\n  manager_id int references employees(id),\n  dept       text not null,\n  salary     int not null,\n  hired_on   date not null\n);\n\ninsert into employees values\n  (1, '燕 店長',   null, '本部', 520000, '2015-04-01'),\n  (2, '石田 健',   1,    '店舗', 380000, '2017-04-01'),\n  (3, '森 千尋',   1,    '通販', 400000, '2018-10-01'),\n  (4, '岡 拓海',   2,    '店舗', 280000, '2021-04-01'),\n  (5, '原 美月',   2,    '店舗', 265000, '2023-04-01'),\n  (6, '西 翔',     3,    '通販', 300000, '2020-07-01'),\n  (7, '松井 葉月', 3,    '通販', 300000, '2022-01-11'),\n  (8, '木村 涼',   6,    '通販', 240000, '2025-04-01');\n\nanalyze;\n"}</script>
+<script src="assets/search-index.js"></script>
+<script src="assets/sqlhl.js"></script>
+<script src="assets/app.js"></script>
+<aside class="dbv" id="dbv" hidden aria-label="データベースの中身">
+  <div class="dbv-grip" role="separator" aria-orientation="horizontal" aria-label="パネルの高さを変える（上下の矢印キーでも変えられます）" tabindex="0"></div>
+  <div class="dbv-h">
+    <div class="dbv-tabs" role="tablist" aria-label="テーブル"></div>
+    <div class="dbv-ctl">
+      <div class="dbv-seg" role="group" aria-label="表示"><button type="button" data-v="data" aria-pressed="true">データ</button><button type="button" data-v="struct" aria-pressed="false">構造</button></div>
+      <label class="dbv-opt" title="ctid（行の物理的な位置）と xmin・xmax（行を作った／消したトランザクション）を列に加えます"><input type="checkbox" class="dbv-sys"> ctid・xmin・xmax</label>
+      <button type="button" class="dbv-btn dbv-refresh" title="読み直す">更新</button>
+      <button type="button" class="icon-btn dbv-close" aria-label="閉じる"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+  </div>
+  <div class="dbv-sum"></div>
+  <div class="dbv-b"></div>
+</aside>
+<script src="assets/sql.js"></script>
+<script src="assets/dbview.js"></script>
+<script src="assets/quiz.js"></script>
+</body>
+</html>
