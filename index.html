@@ -41,7 +41,8 @@
   .rust .k { color: #9c3a14; }
   .pg .k { color: #2b5a80; }
   .cpu .k { color: #3d7a4f; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rust .k { color: #e8936a; } :root:not([data-theme="light"]) .pg .k { color: #92b8dc; } :root:not([data-theme="light"]) .cpu .k { color: #8fc79f; } }
+  .lnx .k { color: #8a5a00; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rust .k { color: #e8936a; } :root:not([data-theme="light"]) .pg .k { color: #92b8dc; } :root:not([data-theme="light"]) .cpu .k { color: #8fc79f; } :root:not([data-theme="light"]) .lnx .k { color: #e0b45c; } }
   .t { font-size: 19px; font-weight: 500; }
   .d { font-size: 14px; color: var(--t2); }
   .m { font: 400 12px "JetBrains Mono", ui-monospace, monospace; color: var(--t3); margin-top: auto; padding-top: 8px; }
@@ -69,6 +70,12 @@
       <span class="t">図解 CPU</span>
       <span class="d">0 と 1、論理ゲート、加算器、機械語、パイプライン、キャッシュまで。自作の RISC-V CPU と回路シミュレータをブラウザで動かしながら、ゲームを作るところまで。</span>
       <span class="m">22 章 · 図 119 · 実行できるプログラムと回路 331 · 確認問題 76</span>
+    </a>
+    <a class="card lnx" href="linux/site/index.html">
+      <span class="k">docs/linux</span>
+      <span class="t">図解 Linux</span>
+      <span class="d">シェル、ファイル、権限、パイプから、プロセス、シグナル、システムコール、VFS、仮想メモリ、スケジューラ、ネットワーク、コンテナまで。ブラウザで動く小さな Linux で、カーネルの中をのぞきながら。</span>
+      <span class="m">22 章 · 図 83 · 実行できるコマンド 652 · 確認問題 78</span>
     </a>
   </div>
 </main>
