@@ -237,13 +237,23 @@
     for (const r of all) c.out(r[0].padEnd(w[0]) + ' ' + (g.o.T ? r[1].padEnd(w[1]) + ' ' : '') + r[2].padStart(w[2]) + ' ' + r[3].padStart(w[3]) + ' ' + r[4].padStart(w[4]) + ' ' + r[5].padStart(w[5]) + ' ' + r[6] + '\n');
     return rc;
   });
-  P('mount', 'ファイルシステムをマウントする。引数なしならマウントの一覧を表示する', 'mount [-t 種類] [-o オプション] 元 マウント先', function* (c) {
-    const g = c.getopt('t:o:al'); if (!g) return 1;
+  P('mount', 'ファイルシステムをマウントする。引数なしならマウントの一覧を表示する', 'mount [-t 種類] [-o オプション] 元 マウント先    mount --bind 元 マウント先    mount -o remount,ro マウント先', function* (c) {
+    const g = c.getopt('t:o:alBr', { '--bind': 'B', '--read-only': 'r', '--types': 't', '--options': 'o' }); if (!g) return 1;
     if (!g.args.length) { for (const m of yield* mountList(c)) if (!g.o.t || g.o.t === m.type) c.out(m.source + ' on ' + m.target + ' type ' + m.type + ' (' + m.opts + ')\n'); return 0; }
-    if (g.args.length < 2) { c.err("mount: " + g.args[0] + ": can't find in /etc/fstab.\n"); return 1; }
-    const src = g.args[0], tgt = g.args[1], type = g.o.t || (src === 'proc' || src === 'tmpfs' ? src : '');
-    if (!type) { c.err('mount: ' + tgt + ': you must specify the filesystem type.\n'); return 32; }
-    const r = yield sys.mount(src, tgt, type, 0, g.o.o || '');
+    const opts = (g.o.o || '').split(',').filter(Boolean);
+    const has = (o) => opts.includes(o);
+    let flags = 0;
+    if (has('ro') || g.o.r) flags |= 1;
+    if (has('bind') || g.o.B) flags |= 4096;
+    if (has('remount')) flags |= 32;
+    if (g.args.length < 2 && !(flags & 32)) { c.err("mount: " + g.args[0] + ": can't find in /etc/fstab.\n"); return 1; }
+    const src = flags & 32 ? 'none' : g.args[0], tgt = flags & 32 ? g.args[g.args.length - 1] : g.args[1];
+    const type = flags & (32 | 4096) ? '' : g.o.t || (src === 'proc' || src === 'tmpfs' ? src : '');
+    if (!type && !(flags & (32 | 4096))) { c.err('mount: ' + tgt + ': you must specify the filesystem type.\n'); return 32; }
+    const data = opts.filter((o) => !/^(ro|rw|bind|remount)$/.test(o)).join(',');
+    const r = yield sys.mount(src, tgt, type || null, flags, data || null);
+    if (r === -E.EINVAL && (flags & 32)) { c.err('mount: ' + tgt + ': mount point not mounted or bad option.\n'); return 32; }
+    if (r === -E.ENOENT && (flags & 4096) && !isErr(yield sys.stat(tgt))) { c.err('mount: ' + tgt + ': special device ' + src + ' does not exist.\n'); return 32; }
     if (r === -E.EPERM) { c.err('mount: ' + tgt + ': must be superuser to use mount.\n'); return 1; }
     if (r === -E.ENOENT) { c.err('mount: ' + tgt + ': mount point does not exist.\n'); return 32; }
     if (r === -E.ENOTDIR) { c.err('mount: ' + tgt + ': mount point is not a directory.\n'); return 32; }
@@ -304,7 +314,7 @@
   P('arch', 'CPU の種類を表示する', 'arch', function* (c) { c.out((yield sys.uname()).machine + '\n'); return 0; });
   P('nproc', '使える CPU の数を表示する', 'nproc', function* (c) { c.out('1\n'); return 0; });
   P('sync', 'まだディスクに書かれていないデータを書き出す', 'sync', function* () { yield sys.sync(); return 0; });
-  P('strace', 'コマンドが呼ぶシステムコールを 1 行ずつ表示する', 'strace [-f] [-e trace=名前,…] [-o ファイル] コマンド [引数…]', function* (c) {
+  P('strace', 'コマンドが呼ぶシステムコールを 1 行ずつ表示する', 'strace [-f] [-c] [-e trace=名前,…] [-o ファイル] コマンド [引数…]', function* (c) {
     const g = c.getopt('fe:o:ttTcqs:p:', null, true); if (!g) return 1;
     if (!g.args.length) { c.err('strace: must have PROG [ARGS] or -p PID\n'); return 1; }
     const path = yield* c.which(g.args[0]);
@@ -313,9 +323,9 @@
     if (g.o.o !== undefined) { fd = yield sys.open(g.o.o, O.WRONLY | O.CREAT | O.TRUNC, 0o666); if (fd < 0) { c.err("strace: Can't fopen '" + g.o.o + "': " + strerror(fd) + '\n'); return 1; } }
     let filter = null;
     if (g.o.e !== undefined) { const ALIAS = { network: 'socket,bind,listen,accept,connect,shutdown,getsockname,getpeername,setsockopt,getsockopt', memory: 'brk,mmap,munmap,mprotect', open: 'openat', exit: 'exit_group', fork: 'clone', sigaction: 'rt_sigaction', getdents: 'getdents64', file: 'openat,stat,lstat,access,unlink,mkdir,rmdir,rename,chmod,chown,readlink,symlink,link,chdir,execve,getcwd', process: 'clone,execve,exit_group,wait4,kill', desc: 'openat,read,write,close,dup,dup2,pipe,lseek,fstat,fcntl,getdents64,ioctl', signal: 'kill,rt_sigaction,rt_sigprocmask,pause' }; filter = []; for (const n of g.o.e.replace(/^trace=/, '').split(',')) for (const x of (ALIAS[n] || n).split(',')) filter.push(x); }
-    const argv = g.args, env = c.env, follow = !!g.o.f;
+    const argv = g.args, env = c.env, follow = !!g.o.f, count = g.o.c ? {} : null;
     const pid = yield sys.fork(function* (c2) {
-      yield sys.ptrace('PTRACE_TRACEME', { fd, follow, filter });
+      yield sys.ptrace('PTRACE_TRACEME', { fd, follow, filter, count });
       if (fd !== 2) yield sys.close(fd);
       const r = yield sys.execve(path, argv, env);
       c2.err('strace: exec: ' + strerror(r) + '\n');
@@ -323,7 +333,21 @@
     });
     if (fd !== 2) yield sys.close(fd);
     if (pid < 0) return c.perr('fork', pid);
-    for (;;) { const w = yield sys.wait4(pid, 0); if (w === -E.EINTR) continue; if (typeof w === 'number') return 1; return (w.status & 0x7f) ? 128 + (w.status & 0x7f) : (w.status >> 8) & 0xff; }
+    let code;
+    for (;;) { const w = yield sys.wait4(pid, 0); if (w === -E.EINTR) continue; if (typeof w === 'number') { code = 1; break; } code = (w.status & 0x7f) ? 128 + (w.status & 0x7f) : (w.status >> 8) & 0xff; break; }
+    if (count) {
+      // 本物の strace -c と同じ表：時間の多い順（同じならシステムコールの番号順）
+      const ORDER = LNX.SYSCALL_ORDER || [];
+      const rows = Object.keys(count).map((n) => Object.assign({ n }, count[n])).sort((a, b) => b.ms - a.ms || ORDER.indexOf(a.n) - ORDER.indexOf(b.n));
+      const tot = rows.reduce((t, r) => ({ calls: t.calls + r.calls, errors: t.errors + r.errors, ms: t.ms + r.ms }), { calls: 0, errors: 0, ms: 0 });
+      const w = Math.max(16, ...rows.map((r) => r.n.length)), dash = '------ ----------- ----------- --------- --------- ' + '-'.repeat(w) + '\n';
+      const line = (r, n) => (tot.ms ? (100 * r.ms / tot.ms).toFixed(2) : '0.00').padStart(6) + ' ' + (r.ms / 1000).toFixed(6).padStart(11) + ' ' + String(r.calls ? Math.round(r.ms * 1000 / r.calls) : 0).padStart(11) + ' ' + String(r.calls).padStart(9) + ' ' + (r.errors ? String(r.errors) : '').padStart(9) + ' ' + n + '\n';
+      let o = '% time     seconds  usecs/call     calls    errors syscall\n' + dash;
+      for (const r of rows) o += line(r, r.n);
+      o += dash + line(tot, 'total');
+      if (g.o.o !== undefined) { const f2 = yield sys.open(g.o.o, O.WRONLY | O.APPEND); if (f2 >= 0) { yield* c.writeAll(f2, o); yield sys.close(f2); } } else c.err(o);
+    }
+    return code;
   });
   P('lsof', 'プロセスが開いているファイルの一覧を表示する', 'lsof [-p PID]', function* (c) {
     const g = c.getopt('p:u:c:'); if (!g) return 1;
@@ -395,13 +419,15 @@
     cd: ['いまいるディレクトリを変える', 'cd [ディレクトリ]   引数なしならホームへ。cd - で 1 つ前へ'], pwd: ['いまいるディレクトリを表示する', 'pwd'], echo: ['引数をそのまま表示する', 'echo [-n] [-e] 文字列…'],
     printf: ['書式を指定して表示する', 'printf 書式 [引数…]'], export: ['変数を環境変数にする（子プロセスに渡る）', 'export 名前[=値]…'], unset: ['変数や関数を消す', 'unset 名前…'],
     read: ['標準入力から 1 行読んで変数に入れる', 'read [-r] [-p プロンプト] 変数…'], test: ['条件を調べて、終了ステータスで答える', 'test 式   または   [ 式 ]'], exit: ['シェルを終わる', 'exit [終了ステータス]'],
-    jobs: ['バックグラウンドのジョブの一覧を表示する', 'jobs [-l]'], fg: ['ジョブを前面（フォアグラウンド）に戻す', 'fg [%ジョブ番号]'], bg: ['止まっているジョブを、バックグラウンドで再開する', 'bg [%ジョブ番号]'],
+    jobs: ['バックグラウンドのジョブの一覧を表示する', 'jobs [-l] [-p]'], fg: ['ジョブを前面（フォアグラウンド）に戻す', 'fg [%ジョブ番号]'], bg: ['止まっているジョブを、バックグラウンドで再開する', 'bg [%ジョブ番号]'],
     wait: ['子プロセスが終わるのを待つ', 'wait [PID | %ジョブ番号]…'], kill: ['プロセスやジョブにシグナルを送る', 'kill [-シグナル] PID | %ジョブ番号'], trap: ['シグナルを受け取ったときに実行するコマンドを決める', "trap 'コマンド' シグナル…   trap - シグナル で元に戻す"],
     type: ['名前がコマンドとしてどう解釈されるかを表示する', 'type 名前…'], alias: ['コマンドに別名をつける', "alias 名前='コマンド'"], source: ['ファイルを、いまのシェルの中で実行する（. と同じ）', 'source ファイル'],
-    exec: ['シェル自身を、指定したコマンドに置き換える', 'exec コマンド [引数…]'], umask: ['新しく作るファイルの権限から落とすビットを表示・設定する', 'umask [8 進数]'], set: ['シェルの設定や位置パラメータを変える', 'set [-x] [-u] [--] [引数…]'],
+    exec: ['シェル自身を、指定したコマンドに置き換える', 'exec コマンド [引数…]'], umask: ['新しく作るファイルの権限から落とすビットを表示・設定する', 'umask [-S] [8 進数 | u=rwx,g=rx,o=]'], set: ['シェルの設定や位置パラメータを変える', 'set [-x] [-u] [--] [引数…]'],
     shift: ['位置パラメータ（$1 $2 …）を 1 つずらす', 'shift [数]'], return: ['関数を終わる', 'return [終了ステータス]'], eval: ['引数をつなげて、コマンドとして実行する', 'eval 文字列…'], local: ['関数の中だけの変数を作る', 'local 名前[=値]…'],
     true: ['何もせず、成功（0）で終わる', 'true'], false: ['何もせず、失敗（1）で終わる', 'false'], command: ['関数や別名を無視してコマンドを実行する。-v で場所を表示する', 'command [-v] 名前'], readonly: ['変数を書き換えられないようにする', 'readonly 名前[=値]…'],
     break: ['ループを抜ける', 'break [数]'], continue: ['ループの次の回へ進む', 'continue [数]'], getopts: ['スクリプトのオプションを解釈する', 'getopts 書式 変数'], unalias: ['別名を消す', 'unalias 名前'], hash: ['コマンドの場所の記憶を消す', 'hash -r'],
+    history: ['これまでに打ったコマンドを、番号つきで表示する', 'history [個数]   history -c で消す'], disown: ['ジョブを、シェルのジョブの表から外す', 'disown [-h] [-a] [%ジョブ番号…]'],
+    ulimit: ['資源の上限（開けるファイルの数、core の大きさなど）を表示・設定する', 'ulimit [-a] [-S|-H] [-c|-n|-s|-u|-f|-t|-v] [数 | unlimited]'],
   };
   P('help', '使えるコマンドの一覧と、使い方を表示する', 'help [コマンド名]', function* (c) {
     const name = c.argv[1];

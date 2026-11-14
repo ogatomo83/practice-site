@@ -74,7 +74,7 @@ function runBlock(body, info, ctx) {
     who ? `<span class="code-badge">${esc(who)} で実行</span>` : '',
     flags.has('strace') || attrs.strace ? '<span class="code-badge">strace：システムコールも表示</span>' : '',
     attrs.trace ? `<span class="code-badge">${esc(attrs.trace.split(/[|,\s]+/).filter(Boolean).map((t) => TRACE_JA[t] || t).join('・'))}を観察</span>` : '',
-    attrs.stdin !== undefined ? '<span class="code-badge">入力つき</span>' : '',
+    attrs.stdin !== undefined ? `<span class="code-badge" title="最初のコマンドに、キーボードからこう打ったものとして渡します（⏎ は Enter）">入力：${esc(attrs.stdin.replace(/\\n/g, ' ⏎ ').replace(/\\t/g, '⇥').trim())}</span>` : '',
     flags.has('limit') ? '<span class="code-badge">上限で打ち切られる</span>' : '',
   ].join('');
   return `<div class="code lnxrun${isFail ? ' is-fail' : ''}" data-lang="sh" data-info="${attr(info)}"><div class="code-h">${title}${badges}<span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="コマンドをコピー">コピー</button><button type="button" class="run-btn">${PLAY}<span>実行</span></button></div>${editor(raw, 'sh', 'コマンドを編集して実行できます')}<div class="out" hidden aria-live="polite"></div></div>`;

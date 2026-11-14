@@ -174,7 +174,7 @@
     const ifs = () => (k.ns0.net ? k.ns0.net.ifaces : []);
     sysfs.reg('class/net', { type: 'd', kids: {}, list: () => ifs().map((i) => i.name), get: (k2, p, name) => { const i = ifs().find((x) => x.name === name); return i ? { type: 'd', kids: { address: { type: 'f', read: () => i.mac + '\n' }, mtu: { type: 'f', read: () => i.mtu + '\n' }, operstate: { type: 'f', read: () => i.state.toLowerCase() + '\n' } } } : null; } });
     const R = k.rootfs.root.ents;
-    k.doMount(n0, sysfs, R.get('sys'), '/sys', { opts: 'rw,nosuid,nodev,noexec,relatime' });
+    k.doMount(n0, sysfs, R.get('sys'), '/sys', { opts: 'rw,nosuid,nodev,noexec,relatime', pinned: true });
     const cgfs = k.mkfs('cgroup2', 'cgroup2', { blocks: 0, mode: 0o755, inodes: 4096 });
     const T0 = k.epoch - 9000;
     const mkCg = (parent, name, dir, uid) => {
@@ -231,7 +231,7 @@
         return 0;
       },
     };
-    k.doMount(n0, cgfs, k.namei(k.kcred, '/sys/fs/cgroup'), '/sys/fs/cgroup', { opts: 'rw,nosuid,nodev,noexec,relatime' });
+    k.doMount(n0, cgfs, k.namei(k.kcred, '/sys/fs/cgroup'), '/sys/fs/cgroup', { opts: 'rw,nosuid,nodev,noexec,relatime', pinned: true });
     k.fstypes.cgroup2 = () => cgfs;
     k.fstypes.sysfs = () => sysfs;
     const runfs = k.fstypes.tmpfs(k, 'tmpfs', 'size=1M');

@@ -766,6 +766,7 @@
     this.traps = new Map(); this.pending = []; this.caught = new Map(); this.intr = false;
     this.hash = new Map(); this.line = 1; this.fdepth = 0; this.locals = []; this.csStatus = 0; this.direct = false; this.optpos = 0;
     this.parentJc = false; this.parentCaught = [];
+    this.history = []; this.histBase = 1;
   }
   const S = Shell.prototype;
   S.sub = function (c) {
@@ -773,8 +774,10 @@
     for (const [k, v] of this.vars) s.vars.set(k, { v: v.v, x: v.x, ro: v.ro });
     s.funcs = new Map(this.funcs); s.aliases = new Map(this.aliases); s.pos = this.pos.slice(); s.name0 = this.name0; s.st = this.st;
     s.lastBg = this.lastBg; s.pid = this.pid; s.ppid = this.ppid; s.opt = Object.assign({}, this.opt); s.hash = new Map(this.hash);
-    s.line = this.line; s.fdepth = this.fdepth; s.parentJc = this.jc; s.pfxI = this.interactive || this.pfxI;
+    s.line = this.line; s.fdepth = this.fdepth; s.parentJc = this.jc; s.xdepth = this.xdepth; s.pfxI = this.interactive || this.pfxI;
     s.parentCaught = Array.from(this.caught.keys());
+    // bash：サブシェルの中の jobs は、親のジョブの表を見せる（$(jobs -p) が使える）。自分の子ではないので待たない
+    s.jobs = this.jobs.map((j) => Object.assign({}, j, { pids: j.pids.slice(), left: j.left.slice(), inherited: true }));
     for (const [sig, cmd] of this.traps) if (cmd === '') s.traps.set(sig, '');
     return s;
   };
@@ -1000,6 +1003,7 @@
     const self = this;
     const pid = yield shFork(self, function* (c2) {
       const sub = self.sub(c2);
+      sub.xdepth = (self.xdepth | 0) + 1;
       yield* sub.childSetup(self.pgid);
       yield sys.close(pr[0]);
       if (pr[1] !== 1) { yield sys.dup2(pr[1], 1); yield sys.close(pr[1]); }
@@ -1103,6 +1107,12 @@
       if (left.has(r.pid)) { left.delete(r.pid); if (r.pid === last) { st = decodeStatus(r.status); sigd = r.status & 0x7f; if (r.status & 0x80) sigd |= 0x80; } }
     }
     if (job && job.id) { const i = this.jobs.indexOf(job); if (i >= 0 && !job.left.length) this.jobs.splice(i, 1); }
+    // 非対話のシェル（スクリプト、sh -c）：bash と同じく「名前: line N:   PID 理由   コマンド」と知らせる（SIGINT・SIGPIPE は黙る、SIGTERM は理由だけ）
+    if (sigd && !this.interactive && !this.pfxI && job && job.text) {
+      const s = sigd & 0x7f;
+      if (s === SIG.TERM) yield* this.eputs(LNX.SIGDESC[s] + '\n');
+      else if (s !== SIG.INT && s !== SIG.PIPE) yield* this.eputs(this.prefix() + String(last).padStart(5) + ' ' + LNX.SIGDESC[s].padEnd(24) + (sigd & 0x80 ? '(core dumped) ' : '') + job.text + '\n');
+    }
     if (sigd && this.interactive) {
       const s = sigd & 0x7f;
       if (s === SIG.INT) { yield* this.eputs('\n'); if (this.traps.get(SIG.INT)) this.pending.push(SIG.INT); else throw { shInt: true }; }
@@ -1111,14 +1121,20 @@
     return st;
   };
   S.jobState = function (j) {
-    if (j.state === 'Done') { const s = j.status & 0x7f; return s ? LNX.SIGDESC[s] + (j.status & 0x80 ? ' (core dumped)' : '') : j.code ? 'Exit ' + j.code : 'Done'; }
+    if (j.state === 'Done') { const s = j.status & 0x7f; return s ? LNX.SIGDESC[s] : j.code ? 'Exit ' + j.code : 'Done'; }
     if (j.state === 'Stopped') return 'Stopped';
     return 'Running';
   };
   S.jobLine = function (j, opt) {
     const n = this.jobs.length, idx = this.jobs.indexOf(j);
     const mark = idx === n - 1 ? '+' : idx === n - 2 ? '-' : ' ';
-    return '[' + j.id + ']' + mark + '  ' + (opt === 'l' ? j.pids[0] + ' ' : '') + this.jobState(j).padEnd(24) + j.text + (j.state === 'Running' ? ' &' : '');
+    // bash の書式：状態を 24 桁にそろえ、core を残したら「(core dumped) 」を足す。-l はプロセスごとに 1 行（2 行目からは「| 」で始まる）
+    const core = j.state === 'Done' && (j.status & 0x7f) && (j.status & 0x80) ? '(core dumped) ' : '';
+    const amp = j.state === 'Running' ? ' &' : '';
+    if (opt !== 'l') return '[' + j.id + ']' + mark + '  ' + this.jobState(j).padEnd(24) + core + j.text + amp;
+    const parts = j.pids.length > 1 && j.parts && j.parts.length === j.pids.length ? j.parts : [j.text];
+    if (parts.length === 1) return '[' + j.id + ']' + mark + ' ' + String(j.pids[0]).padStart(5) + ' ' + this.jobState(j).padEnd(24) + core + j.text + amp;
+    return parts.map((t, i) => (i === 0 ? '[' + j.id + ']' + mark + ' ' + String(j.pids[0]).padStart(5) + ' ' + this.jobState(j).padEnd(24) + core + t : ' '.repeat(5) + String(j.pids[i]).padStart(5) + ' ' + ' '.repeat(22) + '| ' + t) + (i === parts.length - 1 ? amp : '')).join('\n');
   };
   S.reapJobs = function* () {
     for (;;) {
@@ -1183,6 +1199,17 @@
   const isSimple1 = (ao) => !ao.rest.length && ao.first.cmds.length === 1 && !ao.first.neg && ao.first.cmds[0].t === 'cmd';
   S.execAsync = function* (it) {
     const self = this;
+    const pl0 = it.ao.first;
+    if (!it.ao.rest.length && !pl0.neg && !pl0.time && pl0.cmds.length > 1) {
+      // パイプラインを & で：bash と同じく、間にサブシェルをはさまず、各コマンドをシェルの子にする（プロセスグループは先頭の PID）
+      const { pids, pgid } = yield* this.forkPipeline(pl0, true);
+      if (!pids.length) return 1;
+      this.lastBg = pids[pids.length - 1];
+      const j = this.addJob(pids, pgid || pids[0], it.text);
+      j.parts = it.text.split(/\s*\|\s*/).length === pids.length ? it.text.split(/\s*\|\s*/) : null;
+      if (this.interactive) yield* this.eputs('[' + j.id + '] ' + this.lastBg + '\n');
+      return 0;
+    }
     const pid = yield shFork(self, function* (c2) {
       const sub = self.sub(c2);
       yield* sub.childSetup(0);
@@ -1212,6 +1239,30 @@
     if (cmd) { this.traps.delete(0); const st = this.st; try { yield* this.evalStr(cmd); } catch (e) { if (!e || e.lnxExit === undefined) throw e; this.st = e.lnxExit; return; } this.st = st; }
   };
   S.tcset = function* (pgid) { if (this.jc) yield sys.ioctl(TTYFD, TIO.TIOCSPGRP, pgid); };
+  S.forkPipeline = function* (pl, bg) {
+    const self = this, pids = [], n = pl.cmds.length;
+    let prev = -1, pgid = 0;
+    for (let i = 0; i < n; i++) {
+        let pr = null;
+        if (i < n - 1) { pr = yield sys.pipe(); if (!Array.isArray(pr)) { yield* this.emsg('pipe: ' + strerror(pr)); break; } }
+        const inFd = prev, outFd = pr ? pr[1] : -1, closeFd = pr ? pr[0] : -1, cmd = pl.cmds[i], pg = pgid;
+        const pid = yield shFork(self, function* (c2) {
+          const sub = self.sub(c2);
+          yield* sub.childSetup(pg);
+          if (inFd >= 0) { yield sys.dup2(inFd, 0); yield sys.close(inFd); } else if (bg && !self.jc) { const fd = yield sys.open('/dev/null', O.RDONLY); if (fd > 0) { yield sys.dup2(fd, 0); yield sys.close(fd); } }
+          if (outFd >= 0) { yield sys.dup2(outFd, 1); yield sys.close(outFd); }
+          if (closeFd >= 0) yield sys.close(closeFd);
+          sub.direct = cmd.t === 'cmd';
+          return yield* sub.runSub({ t: 'list', items: [{ ao: { first: { neg: false, cmds: [cmd] }, rest: [] }, async: false, text: '' }] });
+        });
+        if (prev >= 0) yield sys.close(prev);
+        if (pr) { yield sys.close(pr[1]); prev = pr[0]; }
+        if (pid < 0) { yield* this.emsg('fork: ' + strerror(pid)); if (pr) yield sys.close(pr[0]); break; }
+        if (this.jc) { if (!pgid) pgid = pid; yield sys.setpgid(pid, pgid); }
+        pids.push(pid);
+      }
+    return { pids, pgid };
+  };
   S.execPipeline = function* (pl, text) {
     if (pl.time && !pl.timing) {
       // 予約語 time：パイプライン全体の実時間と、使った CPU 時間（ユーザー / カーネル）を標準エラーに出す
@@ -1231,27 +1282,7 @@
     const n = pl.cmds.length;
     if (n === 1) st = yield* this.execCommand(pl.cmds[0], text);
     else {
-      const self = this, pids = [];
-      let prev = -1, pgid = 0;
-      for (let i = 0; i < n; i++) {
-        let pr = null;
-        if (i < n - 1) { pr = yield sys.pipe(); if (!Array.isArray(pr)) { yield* this.emsg('pipe: ' + strerror(pr)); break; } }
-        const inFd = prev, outFd = pr ? pr[1] : -1, closeFd = pr ? pr[0] : -1, cmd = pl.cmds[i], pg = pgid;
-        const pid = yield shFork(self, function* (c2) {
-          const sub = self.sub(c2);
-          yield* sub.childSetup(pg);
-          if (inFd >= 0) { yield sys.dup2(inFd, 0); yield sys.close(inFd); }
-          if (outFd >= 0) { yield sys.dup2(outFd, 1); yield sys.close(outFd); }
-          if (closeFd >= 0) yield sys.close(closeFd);
-          sub.direct = cmd.t === 'cmd';
-          return yield* sub.runSub({ t: 'list', items: [{ ao: { first: { neg: false, cmds: [cmd] }, rest: [] }, async: false, text: '' }] });
-        });
-        if (prev >= 0) yield sys.close(prev);
-        if (pr) { yield sys.close(pr[1]); prev = pr[0]; }
-        if (pid < 0) { yield* this.emsg('fork: ' + strerror(pid)); if (pr) yield sys.close(pr[0]); break; }
-        if (this.jc) { if (!pgid) pgid = pid; yield sys.setpgid(pid, pgid); }
-        pids.push(pid);
-      }
+      const { pids, pgid } = yield* this.forkPipeline(pl, false);
       if (pids.length) { yield* this.tcset(pgid); try { st = yield* this.waitFg(pids, { pgid, text }); } finally { yield* this.tcset(this.pgid); } } else st = 1;
       if (this.pending.length) yield* this.runTraps();
     }
@@ -1284,6 +1315,7 @@
         this.line = node.line || this.line;
         yield* this.emsg(e.shErr);
         if (e.fatal && !this.interactive) throw { lnxExit: e.st || 1 };
+        if (e.fatal) throw { shAbortLine: true, st: e.st || 1 };   // 対話シェル：その行の残りを捨てて、プロンプトに戻る
         return e.st || 1;
       }
       throw e;
@@ -1379,6 +1411,8 @@
     const r = yield sys.execve(path, argv, env);
     if (r === -E.ENOEXEC) { const r2 = yield sys.execve('/bin/sh', ['sh', path].concat(argv.slice(1)), env); yield* this.emsg(argv[0] + ': ' + strerror(r2)); return 126; }
     if (r === -E.EACCES) { const st = yield sys.stat(path); if (typeof st === 'object' && (st.mode & 0o170000) === 0o040000) { yield* this.emsg(argv[0] + ': Is a directory'); return 126; } }
+    // bash 5.2：ファイルはあるのに ENOENT（#! の先がない）なら「required file not found」
+    if (r === -E.ENOENT && typeof (yield sys.stat(path)) === 'object') { yield* this.emsg(argv[0] + ': cannot execute: required file not found'); return 127; }
     yield* this.emsg(argv[0] + ': ' + strerror(r));
     return r === -E.ENOENT ? 127 : 126;
   };
@@ -1393,7 +1427,7 @@
     const argv = yield* this.expWords(node.words);
     const assigns = [];
     for (const a of node.assigns) { let v = yield* this.expS(a.word.parts, false, false, true); if (a.append) v = (this.getVar(a.name) || '') + v; assigns.push([a.name, v]); }
-    if (this.opt.xtrace) yield* this.eputs('+ ' + assigns.map((a) => a[0] + '=' + shQuote(a[1])).concat(argv.map(shQuote)).join(' ') + '\n');
+    if (this.opt.xtrace) yield* this.eputs('+'.repeat(1 + (this.xdepth | 0)) + ' ' + assigns.map((a) => a[0] + '=' + shQuote(a[1])).concat(argv.map(shQuote)).join(' ') + '\n');
     if (!argv.length) {
       if (node.redirs.length) { const sv = yield* this.redirect(node.redirs, true); if (sv === null) return 1; yield* this.restore(sv); }
       for (const [n, v] of assigns) this.setVar(n, v);
@@ -1471,8 +1505,7 @@
   B('printf', function* (av) {
     const r = printf(av.slice(1), 'printf');
     for (const e of r.err) yield* this.emsg(e);
-    yield* this.puts(r.out);
-    return r.st;
+    return (yield* this.puts(r.out)) || r.st;
   });
   B('test [', function* (av) {
     let args = av.slice(1);
@@ -1688,11 +1721,93 @@
       if (av[1] === '-S') { const f = (b) => (b & 4 ? '' : 'r') + (b & 2 ? '' : 'w') + (b & 1 ? '' : 'x'); return yield* this.puts('u=' + f(cur >> 6) + ',g=' + f((cur >> 3) & 7) + ',o=' + f(cur & 7) + '\n'); }
       return yield* this.puts(U.oct(cur, 4) + '\n');
     }
-    if (!/^[0-7]{1,4}$/.test(av[1])) { yield sys.umask(cur); yield* this.emsg('umask: ' + av[1] + ': octal number out of range'); return 1; }
-    yield sys.umask(parseInt(av[1], 8));
+    if (/^[0-7]+$/.test(av[1]) || !/^[ugoa]*[-+=]/.test(av[1])) {
+      if (!/^[0-7]{1,4}$/.test(av[1])) { yield sys.umask(cur); yield* this.emsg('umask: ' + av[1] + ': octal number out of range'); return 1; }
+      yield sys.umask(parseInt(av[1], 8));
+      return 0;
+    }
+    // 記号の形（u=rwx,g=rx,o= や g-x）：「許す」ビットを書き換えて、その補数を umask にする
+    let allow = ~cur & 0o777;
+    for (const part of av[1].split(',')) {
+      const m = /^([ugoa]*)([-+=])([rwx]*)$/.exec(part);
+      if (!m) { yield sys.umask(cur); yield* this.emsg("umask: `" + part.replace(/^[ugoa]*[-+=]/, '').slice(-1) + "': invalid symbolic mode operator"); return 1; }
+      const who = m[1] && m[1] !== 'a' ? m[1] : 'ugo', bits = (m[3].includes('r') ? 4 : 0) | (m[3].includes('w') ? 2 : 0) | (m[3].includes('x') ? 1 : 0);
+      for (const w of who) {
+        const sh = w === 'u' ? 6 : w === 'g' ? 3 : 0;
+        if (m[2] === '=') allow = (allow & ~(7 << sh)) | (bits << sh); else if (m[2] === '+') allow |= bits << sh; else allow &= ~(bits << sh);
+      }
+    }
+    yield sys.umask(~allow & 0o777);
     return 0;
   });
   B('hash', function* (av) { if (av[1] === '-r') this.hash.clear(); return 0; });
+  // history：ログインシェルが受け取った行（先頭が空白の行は残さない）。番号は 1 から
+  B('history', function* (av) {
+    if (av[1] === '-c') { this.histBase += this.history.length; this.history = []; return 0; }
+    if (av[1] !== undefined && !/^\d+$/.test(av[1])) { yield* this.emsg('history: ' + av[1] + (av[1][0] === '-' ? ': invalid option\nhistory: usage: history [-c] [-d offset] [n] or history -anrw [filename] or history -ps arg [arg...]' : ': numeric argument required')); return av[1][0] === '-' ? 2 : 1; }
+    const h = this.history, from = av[1] !== undefined ? Math.max(0, h.length - +av[1]) : 0;
+    let o = '';
+    for (let i = from; i < h.length; i++) o += String(this.histBase + i).padStart(5) + '  ' + h[i] + '\n';
+    return yield* this.puts(o);
+  });
+  // disown：ジョブの表から外す（-h は表に残して、シェルが終わるときの SIGHUP だけ送らない印をつける）
+  B('disown', function* (av) {
+    let h = false, all = false, run = false;
+    const specs = [];
+    for (const a of av.slice(1)) { if (/^-[ahr]+$/.test(a)) { if (a.includes('h')) h = true; if (a.includes('a')) all = true; if (a.includes('r')) run = true; } else specs.push(a); }
+    yield* this.reapJobs();
+    let st = 0;
+    const pick = all ? this.jobs.slice() : specs.length ? [] : [this.findJob()];
+    if (!all) for (const sp of specs) { const j = this.findJob(sp[0] === '%' || !/^\d+$/.test(sp) ? sp : null) || this.jobs.find((x) => x.pids.includes(+sp)); if (!j) { yield* this.emsg('disown: ' + sp + ': no such job'); st = 1; } else pick.push(j); }
+    if (!all && !specs.length && !pick[0]) { yield* this.emsg('disown: current: no such job'); return 1; }
+    for (const j of pick) {
+      if (!j || (run && j.state !== 'Running')) continue;
+      if (h) j.nohup = true; else { const i = this.jobs.indexOf(j); if (i >= 0) this.jobs.splice(i, 1); }
+    }
+    return st;
+  });
+  // ulimit：資源の上限（prlimit64）。数を書けば soft と hard の両方を（-S / -H で片方だけ）変える
+  const ULIM = [
+    ['R', null, 'real-time non-blocking time  (microseconds, -R)', 'unlimited'],
+    ['c', 'core', 'core file size              (blocks, -c)', 1024], ['d', 'data', 'data seg size               (kbytes, -d)', 1024],
+    ['e', null, 'scheduling priority                 (-e)', '0'], ['f', 'fsize', 'file size                   (blocks, -f)', 1024],
+    ['i', null, 'pending signals                     (-i)', '15567'], ['l', 'memlock', 'max locked memory           (kbytes, -l)', 1024],
+    ['m', null, 'max memory size             (kbytes, -m)', 'unlimited'], ['n', 'nofile', 'open files                          (-n)', 1],
+    ['p', null, 'pipe size                (512 bytes, -p)', '8'], ['q', null, 'POSIX message queues         (bytes, -q)', '819200'],
+    ['r', null, 'real-time priority                  (-r)', '0'], ['s', 'stack', 'stack size                  (kbytes, -s)', 1024],
+    ['t', 'cpu', 'cpu time                   (seconds, -t)', 1], ['u', 'nproc', 'max user processes                  (-u)', 1],
+    ['v', 'as', 'virtual memory              (kbytes, -v)', 1024], ['x', null, 'file locks                          (-x)', 'unlimited'],
+  ];
+  B('ulimit', function* (av) {
+    let soft = false, hard = false, all = false, val;
+    const which = [];
+    for (let i = 1; i < av.length; i++) {
+      const a = av[i];
+      if (/^-[A-Za-z]+$/.test(a)) {
+        for (const f of a.slice(1)) {
+          if (f === 'S') soft = true; else if (f === 'H') hard = true; else if (f === 'a') all = true;
+          else { const e = ULIM.find((x) => x[0] === f); if (!e) { yield* this.emsg('ulimit: -' + f + ': invalid option'); yield* this.eputs('ulimit: usage: ulimit [-SHabcdefiklmnpqrstuvxPRT] [limit]\n'); return 2; } which.push(e); }
+        }
+      } else val = a;
+    }
+    const show = (e, l) => { if (!e[1]) return e[3]; const v = l[hard && !soft ? 1 : 0]; return v === Infinity ? 'unlimited' : String(Math.floor(v / e[3])); };
+    if (all) {
+      let o = '';
+      for (const e of ULIM) o += e[2] + ' ' + (e[1] ? show(e, yield sys.prlimit64(0, e[1], null)) : e[3]) + '\n';
+      return yield* this.puts(o);
+    }
+    if (!which.length) which.push(ULIM.find((x) => x[0] === 'f'));
+    if (val === undefined) { let o = ''; for (const e of which) o += (which.length > 1 ? e[2] + ' ' : '') + (e[1] ? show(e, yield sys.prlimit64(0, e[1], null)) : e[3]) + '\n'; return yield* this.puts(o); }
+    const e = which[which.length - 1];
+    if (!e[1]) { yield* this.emsg('ulimit: ' + e[2].replace(/\s+\(.*$/, '') + ': cannot modify limit: Operation not permitted'); return 1; }
+    const cur = yield sys.prlimit64(0, e[1], null);
+    let n;
+    if (val === 'unlimited') n = Infinity; else if (val === 'hard') n = cur[1]; else if (val === 'soft') n = cur[0]; else if (/^\d+$/.test(val)) n = +val * e[3]; else { yield* this.emsg('ulimit: ' + val + ': invalid number'); return 1; }
+    const nl = [soft || !hard ? n : cur[0], hard || !soft ? n : cur[1]];
+    const r = yield sys.prlimit64(0, e[1], nl);
+    if (typeof r === 'number' && r < 0) { yield* this.emsg('ulimit: ' + e[2].replace(/\s+\(.*$/, '') + ': cannot modify limit: ' + strerror(r === -E.EINVAL ? -E.EINVAL : r)); return 1; }
+    return 0;
+  });
   B('getopts', function* (av) {
     if (av.length < 3) { yield* this.emsg('getopts: usage: getopts optstring name [arg ...]'); return 2; }
     const spec = av[1], name = av[2], args = av.length > 3 ? av.slice(3) : this.pos;
@@ -1752,7 +1867,7 @@
     const args = av.slice(1);
     if (!args.length) {
       for (;;) {
-        if (!this.jobs.some((j) => j.state === 'Running')) break;
+        if (!this.jobs.some((j) => j.state === 'Running' && !j.inherited)) break;
         const r = yield sys.wait4(-1, this.jc ? W.UNTRACED : 0);
         if (r === -E.EINTR) { if (this.pending.length) { const sig = this.pending[0]; yield* this.runTraps(); return 128 + sig; } continue; }
         if (typeof r === 'number') break;
@@ -1873,10 +1988,12 @@
       for (;;) {
         const job = yield sys._prompt(st);
         sh.intr = false; sh.pending.length = 0;
+        if (/\S/.test(job.src) && !/^\s/.test(job.src)) { sh.history.push(job.src.replace(/\n+$/, '')); if (sh.history.length > 1000) { sh.history.shift(); sh.histBase++; } }
         if (job.opts && job.opts.xtrace) sh.opt.xtrace = true;
         try { st = yield* sh.evalStr(job.src); } catch (e) {
           if (e && e.lnxExit !== undefined) { sh.st = e.lnxExit; yield* sh.exitTrap(); yield* sh.eputs('logout\n'); return sh.st; }
           if (e && e.shInt) st = 130;
+          else if (e && e.shAbortLine) st = e.st;
           else if (e && e.lnxAbort) {
             st = 130; sh.loops = 0; sh.fdepth = 0; sh.direct = false;
             yield* sh.tcset(sh.pgid);
@@ -1892,6 +2009,8 @@
     let i = 1;
     for (; i < av.length && /^[-+][a-zA-Z]+$/.test(av[i]) && av[i] !== '-c'; i++) {
       if (av[i] === '-s' || av[i] === '-i' || av[i] === '-l') continue;
+      // -lc、-xc のようにまとめて書いた -c
+      if (av[i][0] === '-' && av[i].includes('c')) { for (const f of av[i].slice(1)) { const k = { x: 'xtrace', u: 'nounset', f: 'noglob', e: 'errexit', n: 'noexec' }[f]; if (k) sh.opt[k] = true; } av[i] = '-c'; break; }
       for (const f of av[i].slice(1)) { const k = { x: 'xtrace', u: 'nounset', f: 'noglob', e: 'errexit', n: 'noexec' }[f]; if (k) sh.opt[k] = av[i][0] === '-'; }
     }
     if (av[i] === '-c') {
@@ -1931,7 +2050,7 @@
           sh.intr = false;
           try { st = yield* sh.evalStr(src); } catch (e) {
             if (e && e.lnxExit !== undefined) { if (tty) yield* sh.eputs('exit\n'); return yield* finish(e.lnxExit); }
-            if (e && e.shInt) st = 130; else if (e && (e.brk || e.cont || e.ret !== undefined)) st = sh.st; else throw e;
+            if (e && e.shInt) st = 130; else if (e && e.shAbortLine) st = e.st; else if (e && (e.brk || e.cont || e.ret !== undefined)) st = sh.st; else throw e;
           }
           sh.st = st;
         }

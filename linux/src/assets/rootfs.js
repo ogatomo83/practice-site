@@ -71,8 +71,9 @@
     }
     // マウント
     const R = k.rootfs.root.ents;
-    k.doMount(k.ns0, k.procfs, R.get('proc'), '/proc', { opts: 'rw,nosuid,nodev,noexec,relatime' });
-    k.doMount(k.ns0, k.devfs, R.get('dev'), '/dev', { opts: 'rw,nosuid,relatime,size=4096k,mode=755' });
+    k.doMount(k.ns0, k.procfs, R.get('proc'), '/proc', { opts: 'rw,nosuid,nodev,noexec,relatime', pinned: true });
+    k.doMount(k.ns0, k.devfs, R.get('dev'), '/dev', { opts: 'rw,nosuid,relatime,size=4096k,nr_inodes=14848,mode=755', pinned: true });
+    k.devfs.inodesTotal = 14848;
     const tmpfs = k.fstypes.tmpfs(k, 'tmpfs', 'size=8M');
     k.doMount(k.ns0, tmpfs, R.get('tmp'), '/tmp', { opts: 'rw,nosuid,nodev,relatime,size=8192k' });
     // /dev
@@ -88,7 +89,7 @@
     // /etc
     const etc = {
       passwd: 'root:x:0:0:root:/root:/bin/sh\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\nyou:x:1000:1000:You:/home/you:/bin/sh\nalice:x:1001:1001:Alice:/home/alice:/bin/sh\nbob:x:1002:1002:Bob:/home/bob:/bin/sh\n',
-      group: 'root:x:0:\ndaemon:x:1:\ntty:x:5:\nsudo:x:27:you\nstaff:x:50:you,alice\nusers:x:100:you,alice,bob\nyou:x:1000:\nalice:x:1001:\nbob:x:1002:\nnogroup:x:65534:\n',
+      group: 'root:x:0:\ndaemon:x:1:\ntty:x:5:\nsudo:x:27:you\nshadow:x:42:\nstaff:x:50:you,alice\nusers:x:100:you,alice,bob\nyou:x:1000:\nalice:x:1001:\nbob:x:1002:\nnogroup:x:65534:\n',
       hostname: k.o.hostname + '\n',
       'os-release': 'PRETTY_NAME="Zukai Linux 1.0"\nNAME="Zukai Linux"\nVERSION_ID="1.0"\nVERSION="1.0 (図解)"\nID=zukai\nHOME_URL="https://ogatomo83.github.io/practice-site/"\n',
       hosts: '127.0.0.1\tlocalhost\n127.0.1.1\t' + k.o.hostname + '\n192.168.1.5\t' + k.o.hostname + '.example.jp\n',
@@ -100,8 +101,10 @@
       profile: '# /etc/profile\n',
     };
     for (const n in etc) k.writeFile('/etc/' + n, enc(etc[n]), 0o644, 0, 0, at(22, 14, 2 + n.length));
-    k.writeFile('/etc/shadow', 'root:*:20000:0:99999:7:::\nyou:*:20000:0:99999:7:::\nalice:*:20000:0:99999:7:::\nbob:*:20000:0:99999:7:::\n', 0o640, 0, 0, tOld);
-    k.writeFile('/etc/sudoers', enc('# sudo グループの人は、どのコマンドも root として実行できる\n%sudo\tALL=(ALL:ALL) NOPASSWD: ALL\n'), 0o440, 0, 0, tOld);
+    // 練習用のパスワードは、ユーザー名と同じ（you は you、alice は alice）。root はロック（*）されていて、パスワードではなれない
+    const U = LNX.util, sh = (n) => n + ':' + U.crypt(n, U.saltOf(n)) + ':20000:0:99999:7:::\n';
+    k.writeFile('/etc/shadow', 'root:*:20000:0:99999:7:::\n' + sh('you') + sh('alice') + sh('bob'), 0o640, 0, 42, tOld);
+    k.writeFile('/etc/sudoers', enc('Defaults\tenv_reset\nDefaults\tmail_badpass\nDefaults\tsecure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"\nDefaults\tuse_pty\n\n# sudo グループの人は、どのコマンドも root として実行できる（NOPASSWD：パスワードをたずねない）\n%sudo\tALL=(ALL:ALL) NOPASSWD: ALL\n'), 0o440, 0, 0, tOld);
     // /usr/bin
     const tBin = at(40, 11, 30);
     // late の印のあるコマンド（後の段階で足したもの）は最後に置く（それまでのファイルの inode 番号を変えないため）

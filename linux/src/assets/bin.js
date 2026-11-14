@@ -90,6 +90,8 @@
     for (const f of files) {
       const fd = f === '-' ? 0 : yield sys.open(f, O.RDONLY);
       if (fd < 0) { rc = c.perr(f, fd); continue; }
+      // GNU cat：読むファイルと書く先が同じ普通のファイルで、まだ読む中身があるなら断る（cat f >> f が終わらなくなるので）
+      if (yield sys._samefile(fd, 1)) { c.err('cat: ' + f + ': input file is output file\n'); rc = 1; if (fd > 0) yield sys.close(fd); continue; }
       let pend = '';
       for (;;) {
         const r = yield sys.read(fd, 4096);
@@ -101,7 +103,7 @@
           pend = ls.pop();
           for (const l of ls) c.out(((g.o.n && !g.o.b) || (g.o.b && l !== '') ? String(++ln).padStart(6) + '\t' : '') + l + (g.o.A || g.o.E ? '$' : '') + '\n');
           yield* c.flush();
-        } else { const w = yield* c.writeAll(1, r); if (w < 0) return 1; }
+        } else { const w = yield* c.writeAll(1, r); if (w < 0) { if (w !== -E.EPIPE) c.err('cat: write error: ' + strerror(w) + '\n'); return 1; } }
       }
       if (pend !== '') c.out((g.o.n || g.o.b ? String(++ln).padStart(6) + '\t' : '') + pend);
       if (fd > 0) yield sys.close(fd);
@@ -160,7 +162,7 @@
   P('yes', '同じ文字列を止められるまで出し続ける', 'yes [文字列]', function* (c) {
     const s = (c.argv.length > 1 ? c.argv.slice(1).join(' ') : 'y') + '\n';
     const chunk = s.repeat(Math.max(1, Math.floor(4096 / s.length)));
-    for (;;) { const r = yield sys.write(1, chunk); if (r < 0 && r !== -E.EINTR) return 1; }
+    for (;;) { const r = yield sys.write(1, chunk); if (r < 0 && r !== -E.EINTR) { if (r !== -E.EPIPE) c.err('yes: standard output: ' + strerror(r) + '\n'); return 1; } }
   });
   P('sleep', '指定した秒数だけ待つ', 'sleep 秒数', function* (c) {
     if (c.argv.length < 2) return c.fail('missing operand');
@@ -312,10 +314,24 @@
   });
 
   const FTYPE = { f: 'regular file', d: 'directory', l: 'symbolic link', c: 'character special file', b: 'block special file', p: 'fifo', s: 'socket' };
-  P('stat', 'ファイルの inode の情報（大きさ、権限、リンク数、時刻）を表示する', 'stat [-c 書式] ファイル…', function* (c) {
-    const g = c.getopt('c:L', { '--format': 'c', '--dereference': 'L' }); if (!g) return 1;
+  P('stat', 'ファイルの inode の情報（大きさ、権限、リンク数、時刻）を表示する', 'stat [-L] [-f] [-c 書式] ファイル…', function* (c) {
+    const g = c.getopt('c:Lf', { '--format': 'c', '--dereference': 'L', '--file-system': 'f' }); if (!g) return 1;
     if (!g.args.length) return c.fail('missing operand');
     let rc = 0;
+    if (g.o.f) {
+      const TN = { ext4: 'ext2/ext3', devtmpfs: 'tmpfs', cgroup2: 'cgroup2fs', overlay: 'overlayfs' }, MAGIC = { ext4: 'ef53', tmpfs: '1021994', devtmpfs: '1021994', proc: '9fa0', sysfs: '62656572', cgroup2: '63677270', overlay: '794c7630' };
+      for (const f of g.args) {
+        const s2 = yield sys.statfs(f), st = yield sys.stat(f);
+        if (isErr(s2)) { c.err("stat: cannot read file system information for '" + f + "': " + strerror(s2) + '\n'); rc = 1; continue; }
+        const id = (((st.dev >> 8) << 8) | (st.dev & 255)).toString(16).padStart(8, '0') + '00000000', tn = TN[s2.type] || s2.type;
+        if (g.o.c !== undefined) {
+          c.out(SH.unescape(g.o.c).s.replace(/%([a-zA-Z%])/g, (m, k) => ({ n: f, i: id, l: '255', t: MAGIC[s2.type] || '0', T: tn, b: String(s2.blocks), f: String(s2.bfree), a: String(s2.bavail), s: String(s2.bsize), S: String(s2.bsize), c: String(s2.files), d: String(s2.ffree), '%': '%' })[k] || m) + '\n');
+          continue;
+        }
+        c.out('  File: "' + f + '"\n    ID: ' + id.padEnd(8) + ' Namelen: ' + '255'.padEnd(7) + ' Type: ' + tn + '\nBlock size: ' + String(s2.bsize).padEnd(10) + ' Fundamental block size: ' + s2.bsize + '\nBlocks: Total: ' + String(s2.blocks).padEnd(10) + ' Free: ' + String(s2.bfree).padEnd(10) + ' Available: ' + s2.bavail + '\nInodes: Total: ' + String(s2.files).padEnd(10) + ' Free: ' + s2.ffree + '\n');
+      }
+      return rc;
+    }
     const ts = (ms) => U.strftime('%Y-%m-%d %H:%M:%S.%N %z', ms);
     for (const f of g.args) {
       const st = g.o.L ? yield sys.stat(f) : yield sys.lstat(f);
@@ -462,13 +478,22 @@
     }
     return rc;
   });
-  P('rm', 'ファイルを消す（ディレクトリは -r）', 'rm [-r] [-f] ファイル…', function* (c) {
-    const g = c.getopt('rRfviP', { '--recursive': 'r', '--force': 'f', '--no-preserve-root': 'P', '--preserve-root': 'Q' }); if (!g) return 1;
+  P('rm', 'ファイルを消す（ディレクトリは -r）', 'rm [-r] [-f] [-i] [-v] ファイル…', function* (c) {
+    const g = c.getopt('rRfviP', { '--recursive': 'r', '--force': 'f', '--no-preserve-root': 'P', '--preserve-root': 'Q', '--interactive': 'i' }); if (!g) return 1;
+    { const fl = c.argv.slice(1).filter((a) => /^-[^-]/.test(a)).join('').replace(/[^fi]/g, ''); if (fl) { if (fl[fl.length - 1] === 'f') delete g.o.i; else delete g.o.f; } }
     const rec = g.o.r || g.o.R;
     // GNU rm は rm -r / を断る（--no-preserve-root をつけない限り）
     if (rec && !g.o.P) { const keep = []; for (const a of g.args) { if (U.normpath(a[0] === '/' ? a : '/x/' + a) === '/' && a[0] === '/') { c.err("rm: it is dangerous to operate recursively on '" + a + "'\nrm: use --no-preserve-root to override this failsafe\n"); c.rc = 1; } else keep.push(a); } if (keep.length !== g.args.length) { g.args = keep; if (!keep.length) return 1; } }
     if (!g.args.length) { if (g.o.f) return 0; return c.fail('missing operand'); }
     let rc = 0;
+    // GNU rm の問い合わせ：-i は 1 つずつ、-f がなく端末から打っていて書き込めないファイルは「write-protected」
+    const tty = !g.o.f && (yield* c.isatty(0));
+    const kind = (st) => { const t = typeCh(st); return t === 'd' ? 'directory' : t === 'l' ? 'symbolic link' : t === 'p' ? 'fifo' : t === 'c' ? 'character special file' : t === 'b' ? 'block special file' : t === 's' ? 'socket' : st.size ? 'regular file' : 'regular empty file'; };
+    function* ok(p, st, what) {
+      const wp = typeCh(st) !== 'l' && (yield sys.access(p, 2)) < 0;
+      if (g.o.i || (wp && tty && !g.o.f)) return yield* c.ask('rm: ' + (what || 'remove ' + (wp ? 'write-protected ' : '') + kind(st)) + " '" + p + "'? ");
+      return true;
+    }
     function* rm(p) {
       const st = yield sys.lstat(p);
       if (isErr(st)) { if (!(g.o.f && st === -E.ENOENT)) { c.err("rm: cannot remove '" + p + "': " + strerror(st) + '\n'); rc = 1; } return; }
@@ -476,11 +501,15 @@
         if (!rec) { c.err("rm: cannot remove '" + p + "': Is a directory\n"); rc = 1; return; }
         const ents = yield* c.readDir(p);
         if (isErr(ents)) { c.err("rm: cannot remove '" + p + "': " + strerror(ents) + '\n'); rc = 1; return; }
-        for (const e of ents) if (e.name !== '.' && e.name !== '..') yield* rm(join(p, e.name));
+        const kids = ents.filter((e) => e.name !== '.' && e.name !== '..');
+        if (kids.length && g.o.i && !(yield* c.ask("rm: descend into directory '" + p + "'? "))) return;
+        for (const e of kids) yield* rm(join(p, e.name));
+        if (!(yield* ok(p, st))) return;
         const r = yield sys.rmdir(p);
         if (r < 0) { c.err("rm: cannot remove '" + p + "': " + strerror(r) + '\n'); rc = 1; } else if (g.o.v) c.out("removed directory '" + p + "'\n");
         return;
       }
+      if (!(yield* ok(p, st))) return;
       const r = yield sys.unlink(p);
       if (r < 0) { c.err("rm: cannot remove '" + p + "': " + strerror(r) + '\n'); rc = 1; } else if (g.o.v) c.out("removed '" + p + "'\n");
     }
@@ -528,7 +557,7 @@
     if (o.p) { yield sys.chmod(dst, st.mode & 0o7777); yield sys.utimensat(dst, { atime: st.atime, mtime: st.mtime }); }
     return rc;
   }
-  P('cp', 'ファイルをコピーする（ディレクトリは -r）', 'cp [-r] [-p] コピー元… コピー先', function* (c) {
+  P('cp', 'ファイルをコピーする（ディレクトリは -r）', 'cp [-r] [-p] [-i] [-v] コピー元… コピー先', function* (c) {
     const g = c.getopt('rRpavfi', { '--recursive': 'r' }); if (!g) return 1;
     const o = { r: g.o.r || g.o.R || g.o.a, p: g.o.p || g.o.a, v: g.o.v, P: !!g.o.a };
     if (!g.args.length) return c.fail('missing file operand');
@@ -536,11 +565,17 @@
     const dst = g.args[g.args.length - 1], srcs = g.args.slice(0, -1), dd = isDir(yield sys.stat(dst));
     if (srcs.length > 1 && !dd) return c.fail("target '" + dst + "' is not a directory");
     let rc = 0;
-    for (const s of srcs) rc |= yield* copyTree(c, s, dd ? join(dst, basename(s)) : dst, o);
+    for (const s of srcs) {
+      const to = dd ? join(dst, basename(s)) : dst;
+      if (!dd && /\/$/.test(to) && !isErr(yield sys.lstat(s)) && !isDir(yield sys.stat(s))) { c.err("cp: cannot create regular file '" + to + "': Not a directory\n"); rc = 1; continue; }
+      if (g.o.i && !g.o.f && !isErr(yield sys.lstat(to)) && !isDir(yield sys.stat(s)) && !(yield* c.ask("cp: overwrite '" + to + "'? "))) continue;
+      rc |= yield* copyTree(c, s, to, o);
+    }
     return rc;
   });
-  P('mv', 'ファイルを移動する・名前を変える', 'mv 移動元… 移動先', function* (c) {
+  P('mv', 'ファイルを移動する・名前を変える', 'mv [-i] [-n] [-v] 移動元… 移動先', function* (c) {
     const g = c.getopt('fivn'); if (!g) return 1;
+    const fl = c.argv.slice(1).filter((a) => /^-[^-]/.test(a)).join('').replace(/[^fin]/g, ''), mi = fl[fl.length - 1] === 'i';
     if (!g.args.length) return c.fail('missing file operand');
     if (g.args.length < 2) return c.fail("missing destination file operand after '" + g.args[0] + "'");
     const dst = g.args[g.args.length - 1], srcs = g.args.slice(0, -1), dd = isDir(yield sys.stat(dst));
@@ -550,6 +585,10 @@
       const to = dd ? join(dst, basename(s)) : dst;
       const st = yield sys.lstat(s);
       if (isErr(st)) { c.err("mv: cannot stat '" + s + "': " + strerror(st) + '\n'); rc = 1; continue; }
+      if (!isErr(yield sys.lstat(to))) {
+        if (g.o.n) continue;
+        if (mi && !(yield* c.ask("mv: overwrite '" + to + "'? "))) continue;
+      }
       let r = yield sys.rename(s, to);
       if (r === -E.EXDEV) {
         r = yield* copyTree(c, s, to, { r: true, p: true, P: true });
@@ -636,17 +675,19 @@
   P('id', 'ユーザー ID とグループ ID を表示する', 'id [-u] [-g] [-G] [-n] [ユーザー]', function* (c) {
     const g = c.getopt('ugGnr'); if (!g) return 1;
     const pw = yield* c.passwd(), gr = yield* c.group();
-    let uid, gid, groups;
+    let uid, gid, groups, ruid, rgid;
     if (g.args.length) {
       const u = pw.find((x) => x.name === g.args[0]);
       if (!u) { c.err("id: '" + g.args[0] + "': no such user\n"); return 1; }
       uid = u.uid; gid = u.gid; groups = [gid].concat(gr.filter((x) => x.members.indexOf(u.name) >= 0 && x.gid !== gid).map((x) => x.gid));
-    } else { uid = yield sys.geteuid(); gid = yield sys.getegid(); const gs = yield sys.getgroups(); groups = [gid].concat(gs.filter((x) => x !== gid)); }
+    } else { ruid = yield sys.getuid(); rgid = yield sys.getgid(); uid = yield sys.geteuid(); gid = yield sys.getegid(); const gs = yield sys.getgroups(); groups = [rgid].concat(gs.filter((x) => x !== rgid)); }
+    if (ruid === undefined) { ruid = uid; rgid = gid; }
+    if (g.o.r) { uid = ruid; gid = rgid; }
     const un = (u) => { const x = pw.find((y) => y.uid === u); return x ? x.name : null; }, gn = (i) => { const x = gr.find((y) => y.gid === i); return x ? x.name : null; };
     if (g.o.u) c.out((g.o.n ? un(uid) || uid : uid) + '\n');
     else if (g.o.g) c.out((g.o.n ? gn(gid) || gid : gid) + '\n');
     else if (g.o.G) c.out(groups.map((x) => (g.o.n ? gn(x) || x : x)).join(' ') + '\n');
-    else c.out('uid=' + uid + (un(uid) ? '(' + un(uid) + ')' : '') + ' gid=' + gid + (gn(gid) ? '(' + gn(gid) + ')' : '') + ' groups=' + groups.map((x) => x + (gn(x) ? '(' + gn(x) + ')' : '')).join(',') + '\n');
+    else c.out('uid=' + ruid + (un(ruid) ? '(' + un(ruid) + ')' : '') + ' gid=' + rgid + (gn(rgid) ? '(' + gn(rgid) + ')' : '') + (uid !== ruid ? ' euid=' + uid + (un(uid) ? '(' + un(uid) + ')' : '') : '') + (gid !== rgid ? ' egid=' + gid + (gn(gid) ? '(' + gn(gid) + ')' : '') : '') + ' groups=' + groups.map((x) => x + (gn(x) ? '(' + gn(x) + ')' : '')).join(',') + '\n');
     return 0;
   });
   P('whoami', 'いまのユーザー名を表示する', 'whoami', function* (c) { c.out((yield* c.uname(yield sys.geteuid())) + '\n'); return 0; });
@@ -669,11 +710,73 @@
     if (login) { if ((yield sys.chdir(u.home)) >= 0) env.PWD = u.home; else { yield sys.chdir('/'); env.PWD = '/'; } }
     return env;
   }
+  // ── パスワード（/etc/shadow）──
+  function* shadowRead(c) {
+    const d = yield* c.slurp('/etc/shadow');
+    return typeof d === 'string' ? d.split('\n').filter(Boolean).map((l) => l.split(':')) : [];
+  }
+  // 端末から 1 行読む（本物は端末の表示（エコー）を止めて読むので、打った文字は画面に出ない）。EOF なら null
+  function* readPw(c, prompt) {
+    yield* c.flush();
+    yield sys.write(2, prompt);
+    let l = '', got = false;
+    for (;;) { const r = yield sys.read(0, 1); if (typeof r === 'number') { if (r === -E.EINTR) continue; break; } if (r === '') break; got = true; if (r === '\n') break; l += r; }
+    yield sys.write(2, '\n');
+    return got ? l : null;
+  }
+  function* checkPw(c, user, prompt) {
+    const e = (yield* shadowRead(c)).find((f) => f[0] === user);
+    const pw = yield* readPw(c, prompt);
+    if (!e || pw === null) return false;
+    if (e[1] === '') return true;
+    if (!/^\$/.test(e[1])) return false;   // * や ! で始まる：ロックされている
+    return U.crypt(pw, e[1].split('$')[3]) === e[1];
+  }
+  P('passwd', 'パスワードを変える（-S で状態を表示する）', 'passwd [-S] [-l] [-u] [-d] [ユーザー]', function* (c) {
+    const g = c.getopt('Slud', { '--status': 'S', '--lock': 'l', '--unlock': 'u', '--delete': 'd' }); if (!g) return 2;
+    const ruid = yield sys.getuid(), pw = yield* c.passwd(), me = pw.find((x) => x.uid === ruid);
+    const name = g.args[0] || (me ? me.name : String(ruid));
+    if (!pw.find((x) => x.name === name)) { c.err("passwd: user '" + name + "' does not exist\n"); return 1; }
+    if (ruid !== 0 && (name !== (me && me.name) || g.o.l || g.o.u || g.o.d)) { c.err('passwd: You may not view or modify password information for ' + name + '.\n'); return 1; }
+    const rows = yield* shadowRead(c), e = rows.find((f) => f[0] === name);
+    if (!e) { c.err('passwd: cannot find ' + name + ' in /etc/shadow\n'); return 1; }
+    const today = Math.floor((yield sys.time()) / 86400000);
+    const save = function* () {
+      const fd = yield sys.open('/etc/shadow', O.WRONLY | O.TRUNC);
+      if (fd < 0) return fd;
+      yield* c.writeAll(fd, rows.map((f) => f.join(':')).join('\n') + '\n');
+      yield sys.close(fd);
+      return 0;
+    };
+    if (g.o.S) { const st = e[1] === '' ? 'NP' : /^[!*]/.test(e[1]) ? 'L' : 'P'; c.out(name + ' ' + st + ' ' + U.strftime('%Y-%m-%d', (+e[2] || 0) * 86400000) + ' ' + (e[3] || 0) + ' ' + (e[4] || 99999) + ' ' + (e[5] || 7) + ' ' + (e[6] === '' || e[6] === undefined ? -1 : e[6]) + '\n'); return 0; }
+    if (g.o.l || g.o.u || g.o.d) {
+      if (g.o.l && e[1][0] !== '!') e[1] = '!' + e[1];
+      if (g.o.u) { if (e[1] === '!' ) { c.err('passwd: unlocking the password would result in a passwordless account.\n'); return 3; } e[1] = e[1].replace(/^!/, ''); }
+      if (g.o.d) e[1] = '';
+      const r = yield* save(); if (r < 0) return c.perr('/etc/shadow', r);
+      c.out('passwd: password changed.\n'); return 0;
+    }
+    const unchanged = (msg) => { c.err((msg ? msg + '\n' : '') + 'passwd: Authentication token manipulation error\npasswd: password unchanged\n'); return 10; };
+    if (ruid !== 0) {
+      c.out('Changing password for ' + name + '.\n');
+      if (!(yield* checkPw(c, name, 'Current password: '))) { yield sys.nanosleep(2000); return unchanged(); }
+    }
+    const p1 = yield* readPw(c, 'New password: ');
+    if (p1 === null || p1 === '') return unchanged('No password has been supplied.');
+    const p2 = yield* readPw(c, 'Retype new password: ');
+    if (p1 !== p2) return unchanged('Sorry, passwords do not match.');
+    e[1] = U.crypt(p1, U.saltOf(name + today + p1.length)); e[2] = String(today);
+    const r = yield* save(); if (r < 0) return c.perr('/etc/shadow', r);
+    c.out('passwd: password updated successfully\n');
+    return 0;
+  }, { suid: true, late: true });
   P('su', '別のユーザー（指定しなければ root）になってシェルを始める', 'su [-] [ユーザー] [-c コマンド]', function* (c) {
     let login = false, user = 'root', cmd = null;
     for (let i = 1; i < c.argv.length; i++) { const a = c.argv[i]; if (a === '-' || a === '-l' || a === '--login') login = true; else if (a === '-c') cmd = c.argv[++i]; else if (a[0] === '-') return c.fail("invalid option -- '" + a.slice(1) + "'"); else user = a; }
     const u = (yield* c.passwd()).find((x) => x.name === user);
     if (!u) { c.err('su: user ' + user + ' does not exist or the user entry does not contain all the required fields\n'); return 1; }
+    // root 以外が使うときは、なる相手のパスワードをたずねる（PAM と同じく、間違えたら 2 秒待たせてから断る）
+    if ((yield sys.getuid()) !== 0 && !(yield* checkPw(c, user, 'Password: '))) { yield sys.nanosleep(2000); c.err('su: Authentication failure\n'); return 1; }
     const env = yield* become(c, u, login);
     if (typeof env === 'number') { c.err('su: Authentication failure\n'); return 1; }
     const sh = /nologin$/.test(u.shell || '') ? u.shell : '/bin/sh';
@@ -682,12 +785,23 @@
   }, { suid: true });
   P('sudo', 'コマンドを root（または -u で指定したユーザー）として実行する', 'sudo [-u ユーザー] コマンド [引数…]', function* (c) {
     let user = 'root', i = 1, shell = false, login = false;
-    for (; i < c.argv.length; i++) { const a = c.argv[i]; if (a === '-u') user = c.argv[++i]; else if (a === '-i') { shell = true; login = true; } else if (a === '-s') shell = true; else if (a === '--') { i++; break; } else if (a[0] === '-') return c.fail("invalid option -- '" + a.slice(1) + "'"); else break; }
+    for (; i < c.argv.length; i++) { const a = c.argv[i]; if (a === '-u') user = c.argv[++i]; else if (a === '-i') { shell = true; login = true; } else if (a === '-s') shell = true; else if (a === '-l' && c.argv.length === 2) break; else if (a === '--') { i++; break; } else if (a[0] === '-') return c.fail("invalid option -- '" + a.slice(1) + "'"); else break; }
     const pw = yield* c.passwd(), ruid = yield sys.getuid(), me = pw.find((x) => x.uid === ruid);
     if (c.argv.length === 1) { c.err('usage: sudo [-u user] command\n'); return 1; }
-    if (ruid !== 0) {
-      const sg = (yield* c.group()).find((x) => x.name === 'sudo');
-      if (!sg || !me || sg.members.indexOf(me.name) < 0) { c.err((me ? me.name : ruid) + ' is not in the sudoers file.\n'); return 1; }
+    const sg = (yield* c.group()).find((x) => x.name === 'sudo');
+    const allowed = ruid === 0 || (sg && me && sg.members.indexOf(me.name) >= 0);
+    const host = String((yield sys.uname()).nodename || 'localhost');
+    // 許されていない人には、まず本人のパスワードをたずねる（/etc/sudoers の NOPASSWD は sudo グループにだけ効く）
+    if (!allowed) {
+      let ok = false;
+      for (let t = 0; t < 3 && !ok; t++) { const r = yield* checkPw(c, me ? me.name : String(ruid), '[sudo] password for ' + (me ? me.name : ruid) + ': '); if (r) ok = true; else { yield sys.nanosleep(2000); if (t < 2) c.err('Sorry, try again.\n'); } yield* c.flush(); }
+      if (!ok) { c.err('sudo: 3 incorrect password attempts\n'); return 1; }
+      c.err(c.argv[1] === '-l' ? 'Sorry, user ' + (me ? me.name : ruid) + ' may not run sudo on ' + host + '.\n' : (me ? me.name : ruid) + ' is not in the sudoers file.\n');
+      return 1;
+    }
+    if (c.argv[1] === '-l') {
+      c.out('Matching Defaults entries for ' + (me ? me.name : ruid) + ' on ' + host + ':\n    env_reset, mail_badpass, secure_path=/usr/local/sbin\\:/usr/local/bin\\:/usr/sbin\\:/usr/bin\\:/sbin\\:/bin, use_pty\n\nUser ' + (me ? me.name : ruid) + ' may run the following commands on ' + host + ':\n    (ALL : ALL) NOPASSWD: ALL\n');
+      return 0;
     }
     const u = pw.find((x) => x.name === user);
     if (!u) { c.err('sudo: unknown user ' + user + '\n'); return 1; }
@@ -1198,7 +1312,7 @@
   });
 
   // ════════════════════════ find / du ════════════════════════
-  P('find', '条件に合うファイルを、ディレクトリの中から探す', 'find [場所…] [-name パターン] [-type f|d|l] [-maxdepth 数] [-size ±数] [-newer ファイル] [-exec コマンド {} \\;]', function* (c) {
+  P('find', '条件に合うファイルを、ディレクトリの中から探す', 'find [場所…] [-name パターン] [-type f|d|l] [-maxdepth 数] [-size ±数] [-newer ファイル] [-inum 番号] [-samefile ファイル] [-exec コマンド {} \\;]', function* (c) {
     const av = c.argv.slice(1), paths = [];
     let i = 0;
     while (i < av.length && av[i][0] !== '-' && av[i] !== '!' && av[i] !== '(') paths.push(av[i++]);
@@ -1222,6 +1336,8 @@
         case '-user': { const n = need(t), u = (yield* c.passwd()).find((x) => x.name === n); if (!u && !/^\d+$/.test(n)) throw new Error("'" + n + "'" + ' is not the name of a known user'); return { t, uid: u ? u.uid : +n }; }
         case '-group': { const n = need(t), u = (yield* c.group()).find((x) => x.name === n); if (!u && !/^\d+$/.test(n)) throw new Error("'" + n + "'" + ' is not the name of an existing group'); return { t, gid: u ? u.gid : +n }; }
         case '-perm': { const v = need(t), m = /^([-\/]?)([0-7]+)$/.exec(v); if (!m) throw new Error('invalid mode ' + "'" + v + "'"); return { t, how: m[1], mode: parseInt(m[2], 8) }; }
+        case '-inum': case '-links': { const m = /^([+-]?)(\d+)$/.exec(need(t)); if (!m) throw new Error('invalid argument ' + "`" + av[i - 1] + "' to `" + t + "'"); return { t, sign: m[1], n: +m[2] }; }
+        case '-samefile': { const f = need(t), st = yield sys.stat(f); if (isErr(st)) throw new Error("'" + f + "'" + ': ' + strerror(st)); return { t, ino: st.ino, dev: st.dev }; }
         case '-empty': case '-true': case '-false': return { t };
         case '-print': case '-print0': case '-delete': case '-ls': hasAction = true; return { t };
         case '-exec': case '-ok': { const cmd = []; for (;;) { if (i >= av.length) throw new Error("missing argument to `-exec'"); const a = av[i++]; if (a === ';' || (a === '+' && cmd[cmd.length - 1] === '{}')) break; cmd.push(a); } hasAction = true; return { t: '-exec', cmd }; }
@@ -1249,6 +1365,8 @@
         case '-mtime': return cmpN(Math.floor((now - st.mtime) / 86400000), e.sign, e.n);
         case '-mmin': return cmpN(Math.floor((now - st.mtime) / 60000), e.sign, e.n);
         case '-user': return st.uid === e.uid; case '-group': return st.gid === e.gid;
+        case '-inum': return cmpN(st.ino, e.sign, e.n); case '-links': return cmpN(st.nlink, e.sign, e.n);
+        case '-samefile': return st.ino === e.ino && st.dev === e.dev;
         case '-perm': { const m = st.mode & 0o7777; return e.how === '-' ? (m & e.mode) === e.mode : e.how === '/' ? (m & e.mode) !== 0 : m === e.mode; }
         case '-empty': { if (isDir(st)) { const en = yield* c.readDir(p); return !isErr(en) && en.length <= 2; } return typeCh(st) === 'f' && st.size === 0; }
         case '-print': c.out(p + '\n'); if (c.qn >= 4096) yield* c.flush(true); return true;

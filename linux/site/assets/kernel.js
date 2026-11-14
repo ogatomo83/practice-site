@@ -349,6 +349,16 @@
     return { Y: y, M: d.getUTCMonth(), D: d.getUTCDate(), h: d.getUTCHours(), m: d.getUTCMinutes(), s: d.getUTCSeconds(), ms: d.getUTCMilliseconds(), wd: d.getUTCDay(), yday: Math.floor((Date.UTC(y, d.getUTCMonth(), d.getUTCDate()) - Date.UTC(y, 0, 1)) / 86400000) };
   }
   const p2 = (n) => String(n).padStart(2, '0');
+  // /etc/shadow のパスワードのハッシュ（本物の yescrypt「$y$j9T$塩$ハッシュ」と同じ形。中身は教育用の簡単な関数で、暗号としては使えない）
+  const B64 = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  function crypt(pw, salt) {
+    let h1 = 0x811c9dc5, h2 = 0x01000193 ^ salt.length, out = '';
+    const src = salt + '$' + pw;
+    for (let r = 0; r < 64; r++) for (let i = 0; i < src.length; i++) { h1 = Math.imul(h1 ^ src.charCodeAt(i), 16777619) >>> 0; h2 = Math.imul(h2 + h1 + r, 2246822519) >>> 0; }
+    for (let i = 0; i < 43; i++) { h1 = Math.imul(h1 ^ (h2 >>> 7), 16777619) >>> 0; h2 = Math.imul(h2 ^ h1, 2654435761) >>> 0; out += B64[(h1 ^ h2) & 63]; }
+    return '$y$j9T$' + salt + '$' + out;
+  }
+  const saltOf = (name) => crypt(name, 'salt').slice(-22);
   function strftime(fmt, ms) {
     const t = tm(ms);
     return fmt.replace(/%([-_0]?)([a-zA-Z%+])/g, (m, fl, c) => {
@@ -397,7 +407,7 @@
     'utimensat', 'mknod', 'chdir', 'fchdir', 'getcwd', 'mount', 'umount2', 'statfs', 'nanosleep', 'sched_yield', 'fsync', 'sync', 'ioctl',
     'uname', 'sethostname', 'clock_gettime', 'getrandom', 'ptrace',
     'brk', 'mmap', 'munmap', 'mprotect', 'setpriority', 'getpriority', 'socket', 'bind', 'listen', 'accept', 'connect', 'shutdown',
-    'getsockname', 'getpeername', 'unshare', 'setns', 'chroot', 'pivot_root', 'reboot', 'poll', 'times', 'getrusage', '_prompt', '_cpu'];
+    'getsockname', 'getpeername', 'unshare', 'setns', 'chroot', 'pivot_root', 'reboot', 'poll', 'times', 'getrusage', 'prlimit64', '_prompt', '_cpu', '_samefile'];
   for (const n of SYSCALL_NAMES) sys[n] = (...a) => ({ n, a });
   // 本物の libc と同じ「いつもの名前」
   sys.fork = (fn) => ({ n: 'clone', a: [fn, 0] });
@@ -468,6 +478,14 @@
       return d;
     },
     reader(fd) { return new Reader(fd); },
+    // 「rm: remove …? 」のように標準エラー出力にたずねて、標準入力から 1 行読む。y か Y で始まれば true
+    *ask(prompt) {
+      yield* this.flush();
+      yield sys.write(2, prompt);
+      let l = '';
+      for (;;) { const r = yield sys.read(0, 1); if (typeof r === 'number') { if (r === -E.EINTR) continue; break; } if (r === '' || r === '\n') break; l += r; }
+      return /^[yY]/.test(l);
+    },
     *passwd() {
       if (this._pw) return this._pw;
       const d = yield* this.slurp('/etc/passwd');
@@ -664,8 +682,11 @@
     } else if (need < have) { while (ino.blocks.length > need) fs.freeList.push(ino.blocks.pop()); fs.blocksUsed -= have - need; }
     return 0;
   };
+  // ino.holes：まだ一度も書いていないページ（穴）の番号。穴にはブロックを割り当てない（スパースファイル）
   K.setData = function (ino, data) {
-    const r = this.allocBlocks(ino, Math.ceil(data.length / BS));
+    const pages = Math.ceil(data.length / BS);
+    if (ino.holes) { for (const h of Array.from(ino.holes)) if (h >= pages) ino.holes.delete(h); if (!ino.holes.size) ino.holes = null; }
+    const r = this.allocBlocks(ino, pages - (ino.holes ? ino.holes.size : 0));
     if (r < 0) return r;
     ino.data = data; ino.size = data.length;
     return 0;
@@ -676,6 +697,9 @@
   K.fileWrite = function (ino, pos, data, p) {
     if (ino.dyn) { const r = ino.dyn.write ? ino.dyn.write(this, p, data) : -E.EACCES; return r === undefined ? data.length : r; }
     const d = ino.data;
+    // 末尾より先に書く（lseek で飛んでから write）と、間のページは穴になる。書いたページは穴でなくなる
+    if (pos > d.length) { for (let i = Math.ceil(d.length / BS); i < Math.floor(pos / BS); i++) (ino.holes || (ino.holes = new Set())).add(i); }
+    if (ino.holes && data.length) { for (let i = Math.floor(pos / BS); i <= Math.floor((pos + data.length - 1) / BS); i++) ino.holes.delete(i); }
     let nd;
     if (pos === d.length) nd = d + data;
     else if (pos > d.length) nd = d + '\0'.repeat(pos - d.length) + data;
@@ -758,14 +782,19 @@
   };
 
   // ── マウント ──
-  K.mountOf = function (ns, fs) { const l = ns.mnt.list; for (let i = l.length - 1; i >= 0; i--) if (l[i].fs === fs) return l[i]; return null; };
+  // fs の根がどこにマウントされているか（バインドマウントは根がちがうので数えない）
+  K.mountOf = function (ns, fs) { const l = ns.mnt.list; for (let i = l.length - 1; i >= 0; i--) if (l[i].fs === fs && !l[i].root) return l[i]; return null; };
   K.doMount = function (ns, fs, covered, target, o) {
-    const m = { fs, covered, source: fs.source, type: fs.type, target, opts: (o && o.opts) || 'rw,relatime' };
+    const m = { fs, covered, source: fs.source, type: fs.type, target, opts: (o && o.opts) || 'rw,relatime', pinned: !!(o && o.pinned) };
     ns.mnt.list.push(m);
     if (covered) ns.mnt.covered.set(covered, m);
     return m;
   };
-  K.cross = function (p, ino) { const cv = p.ns.mnt.covered; let m; while (cv.size && (m = cv.get(ino))) ino = m.fs.root; return ino; };
+  K.cross = function (p, ino) { const cv = p.ns.mnt.covered; let m; while (cv.size && (m = cv.get(ino))) ino = m.root || m.fs.root; return ino; };
+  // cross と同じだが、最後に通ったマウントも返す
+  K.crossM = function (p, ino) { const cv = p.ns.mnt.covered; let m, last = null; const via = ino; while (cv.size && (m = cv.get(ino))) { ino = m.root || m.fs.root; last = m; } return { ino, m: last, via: last ? via : null }; };
+  // inode を含むマウント（パスを知らないときの推定：同じファイルシステムの、いちばん新しいマウント）
+  K.mntOfIno = function (p, ino) { return this.mountOf(p.ns, ino.fs); };
   K.dotdot = function (p, cur) {
     for (let g = 0; g < 64; g++) {
       if (cur === p.root) return cur;
@@ -776,12 +805,22 @@
     }
     return cur;
   };
+  // いまいるディレクトリの絶対パス。chdir でたどった道を覚えていれば、それを使う（バインドマウントの中でも、入ってきた側の名前になる）
+  K.cwdPath = function (p) {
+    const st = p.cwdStack;
+    if (!st || st[st.length - 1].ino !== p.cwd || st[0].ino !== p.root) return this.pathOf(p, p.cwd);
+    if (p.cwd.nlink === 0 && !p.cwd.fs.synth) return null;
+    const parts = [];
+    for (let i = 1; i < st.length; i++) { const e = st[i], n = (e.via || e.ino); if (n.nlink === 0 && !n.fs.synth && n.type === 'd') return null; parts.push(n.name); }
+    return '/' + parts.join('/');
+  };
   // ディレクトリの inode → 絶対パス（p から見た）
   K.pathOf = function (p, ino) {
     const parts = [];
     let cur = ino;
     for (let g = 0; g < 4096 && cur !== p.root; g++) {
       if (cur === cur.fs.root) { const m = this.mountOf(p.ns, cur.fs); if (!m || !m.covered) break; cur = m.covered; continue; }
+      if (p.ns.mnt.binds && p.ns.mnt.binds.has(cur) && cur.nlink === 0) return null;
       if (cur.nlink === 0 && !cur.fs.synth) return null;
       parts.push(cur.name); cur = cur.parent;
     }
@@ -792,10 +831,14 @@
   K.walk = function (p, path, follow, base) {
     if (typeof path !== 'string' || path === '') return -E.ENOENT;
     if (path.length > 4095) return -E.ENAMETOOLONG;
-    let cur = path.charCodeAt(0) === 47 ? p.root : base || p.cwd;
+    const start = (ino) => [{ ino, mnt: this.mntOfIno(p, ino), via: null }];
+    const cs = p.cwdStack;
+    let st = path.charCodeAt(0) === 47 ? start(p.root) : base ? start(base) : cs && cs[cs.length - 1].ino === p.cwd ? cs.slice() : start(p.cwd);
+    let cur = st[st.length - 1].ino;
     const todo = path.split('/').reverse();
     const trailing = path.charCodeAt(path.length - 1) === 47;
     let depth = 0, via = null;
+    const done = (r) => { if (typeof r === 'number') return r; r.mnt = r.mnt || st[st.length - 1].mnt; this.lastMnt = r.mnt; return r; };
     while (todo.length) {
       const name = todo.pop();
       if (name === '' || name === '.') continue;
@@ -803,38 +846,48 @@
       if (!this.may(p, cur, 1)) return -E.EACCES;
       let last = true;
       for (let i = todo.length - 1; i >= 0; i--) if (todo[i] !== '' && todo[i] !== '.') { last = false; break; }
-      if (name === '..') { cur = this.dotdot(p, cur); continue; }
+      if (name === '..') {
+        if (cur === p.root) continue;
+        if (st.length > 1) { st.pop(); cur = st[st.length - 1].ino; } else { cur = this.dotdot(p, cur); st = start(cur); }
+        continue;
+      }
       if (name.length > 255) return -E.ENAMETOOLONG;
       let next = this.lookup(p, cur, name);
-      if (!next) return last ? { inode: null, parent: cur, name, trailing } : -E.ENOENT;
-      next = this.cross(p, next);
+      if (!next) return done(last ? { inode: null, parent: cur, name, trailing } : -E.ENOENT);
+      const cm = this.crossM(p, next);
+      next = cm.ino;
       if (next.type === 'l' && next.node && next.node.magic && (!last || follow || trailing)) {
         // /proc/PID/fd/N：名前をたどり直さず、開いているファイルそのものへ飛ぶ
         via = next.node.magic();
         if (!via) return -E.ENOENT;
         next = via.inode;
-        if (last) return { inode: next, parent: cur, name, via };
-        cur = next;
+        if (last) return done({ inode: next, parent: cur, name, via, mnt: via.mnt || this.mntOfIno(p, next) });
+        cur = next; st = start(cur);
         continue;
       }
       if (next.type === 'l' && (!last || follow || trailing)) {
         if (++depth > 40) return -E.ELOOP;
         const t = this.linkTarget(p, next);
         if (t === '') return -E.ENOENT;
-        if (t.charCodeAt(0) === 47) cur = p.root;
+        if (t.charCodeAt(0) === 47) { cur = p.root; st = start(cur); }
         const comps = t.split('/');
         for (let i = comps.length - 1; i >= 0; i--) todo.push(comps[i]);
         continue;
       }
       if (last) {
         if (trailing && next.type !== 'd') return -E.ENOTDIR;
-        return { inode: next, parent: cur, name };
+        const r = { inode: next, parent: cur, name, mnt: cm.m || st[st.length - 1].mnt };
+        if (next.type === 'd') { st.push({ ino: next, mnt: r.mnt, via: cm.via }); r.stack = st; }
+        return done(r);
       }
+      st.push({ ino: next, mnt: cm.m || st[st.length - 1].mnt, via: cm.via });
       cur = next;
     }
     if (cur.type !== 'd') return -E.ENOTDIR;
-    return { inode: cur, parent: null, name: null };
+    return done({ inode: cur, parent: null, name: null, stack: st });
   };
+  // 書き込みを断るマウント（mount -o ro）を通ったか
+  K.roMnt = function (w) { const m = w && typeof w === 'object' ? w.mnt : this.lastMnt; return !!(m && m.ro); };
   K.namei = function (p, path, follow) { const r = this.walk(p, path, follow !== false); if (typeof r === 'number') return r; return r.inode || -E.ENOENT; };
   K.fullPath = function (p, w) { if (!w.parent) return this.pathOf(p, w.inode) || '?'; const d = this.pathOf(p, w.parent) || '?'; return (d === '/' ? '' : d) + '/' + w.name; };
 
@@ -857,7 +910,7 @@
   K.fdAlloc = function (p, ofd, min, cloexec) {
     let fd = min || 0;
     while (p.fds[fd]) fd++;
-    if (fd >= 1024) return -E.EMFILE;
+    if (fd >= (p.rlim ? p.rlim.nofile[0] : 1024)) return -E.EMFILE;
     p.fds[fd] = { ofd, cloexec: !!cloexec }; ofd.refs++;
     return fd;
   };
@@ -880,6 +933,8 @@
         let d;
         if (ofd.snap !== undefined) d = ofd.snap.substr(ofd.pos, n); else { d = this.fileRead(ino, ofd.pos, n, p); if (typeof d !== 'string') return d; }
         ofd.pos += d.length;
+        // relatime：読んだら atime を更新する。ただし「atime が mtime・ctime より新しく、最後の更新から 24 時間たっていない」ときは書かない（ディスクへの書き込みを減らすため）
+        if (!ino.fs.synth && !ino.dyn && !(ofd.mnt && ofd.mnt.ro)) { const now = this.now(); if (ino.atime <= ino.mtime || ino.atime <= ino.ctime || now - ino.atime >= 86400000) ino.atime = now; }
         return d;
       }
       case 'p': {
@@ -949,10 +1004,13 @@
       ctx: null, comm: '', argv: [], env: {}, exe: '', children: new Set(), cwait: [], wq: [], tty: null, ns: this.ns0,
       start: this.clock, utime: 0, stime: 0, cutime: 0, cstime: 0, nice: 0, trace: null, onq: false, exitStatus: 0, nvcsw: 0, nivcsw: 0,
       minflt: 0, majflt: 0, cminflt: 0, cmajflt: 0, maxrss: 0, cmaxrss: 0, inblock: 0, oublock: 0, cinblock: 0, coublock: 0, cnvcsw: 0, cnivcsw: 0,
+      // 資源の上限 [soft, hard]（Infinity = unlimited）。Debian の既定に合わせる：core は 0（core を残さない）、開けるファイルは 1024
+      rlim: { core: [0, Infinity], nofile: [1024, 1048576], stack: [8388608, Infinity], nproc: [Infinity, Infinity], fsize: [Infinity, Infinity], cpu: [Infinity, Infinity], data: [Infinity, Infinity], as: [Infinity, Infinity], memlock: [8388608, 8388608] },
     };
     if (parent) {
+      p.rlim = {}; for (const r in parent.rlim) p.rlim[r] = parent.rlim[r].slice();
       p.uid = parent.uid; p.euid = parent.euid; p.gid = parent.gid; p.egid = parent.egid; p.groups = parent.groups.slice();
-      p.cwd = parent.cwd; p.root = parent.root; p.umask = parent.umask; p.tty = parent.tty; p.ns = parent.ns; p.nice = parent.nice;
+      p.cwd = parent.cwd; p.cwdStack = parent.cwdStack; p.root = parent.root; p.umask = parent.umask; p.tty = parent.tty; p.ns = parent.ns; p.nice = parent.nice;
       p.comm = parent.comm; p.argv = parent.argv; p.env = parent.env; p.exe = parent.exe;
       p.sig.mask = parent.sig.mask; p.sig.act = Object.assign({}, parent.sig.act);
       for (let fd = 0; fd < parent.fds.length; fd++) { const e = parent.fds[fd]; if (e) { p.fds[fd] = { ofd: e.ofd, cloexec: e.cloexec }; e.ofd.refs++; } }
@@ -1083,7 +1141,7 @@
       this.ev('stop', { pid: p.pid, sig });
       return;
     }
-    this.exit(p, sig | (d === 'core' ? 0x80 : 0));
+    this.exit(p, sig | (d === 'core' && p.rlim && p.rlim.core[0] > 0 ? 0x80 : 0));
   };
   K.crash = function (p, e) {
     const msg = (p.comm || '?') + ': internal error: ' + (e && e.stack ? String(e.stack).split('\n').slice(0, 3).join(' | ') : String(e)) + '\n';
@@ -1154,6 +1212,7 @@
   // ── strace ──
   K.traceEmit = function (p, name, text) {
     const t = p.trace, sk = t.sink;
+    if (sk.count) return;
     if (sk.filter && name !== 'exit' && name !== 'signal' && !sk.filter.has(name)) return;
     sk.pids.add(p.pid);
     const line = (sk.pids.size > 1 ? '[pid ' + p.pid + '] ' : '') + text;
@@ -1161,6 +1220,9 @@
   };
   K.traceCall = function (p, req, r) {
     const d = SC[req.n];
+    // strace -c：1 行ずつは出さず、名前ごとに回数とエラーの数を数える（1 回 1 ミリ秒として時間も足す）
+    const ck = p.trace.sink.count;
+    if (ck) { if (p.trace.sink.filter && !p.trace.sink.filter.has(req.n)) return; const c = ck[req.n] || (ck[req.n] = { calls: 0, errors: 0, ms: 0 }); c.calls++; c.ms += 1; if (typeof r === 'number' && r < 0) c.errors++; return; }
     let args;
     try { args = d ? d.fmt(req.a, r, p, req) : ''; } catch (e) { args = '...'; }
     let rs;
@@ -1243,6 +1305,21 @@
 
   def('getpid', (k, p) => p.pid);
   def('getppid', (k, p) => p.ppid);
+  // prlimit64(pid, 資源, 新しい [soft, hard] か null) → 前の [soft, hard]。資源は 'core' 'nofile' 'stack' 'nproc' 'fsize' 'cpu' 'data' 'as' 'memlock'
+  const RLIMNAME = { core: 'RLIMIT_CORE', nofile: 'RLIMIT_NOFILE', stack: 'RLIMIT_STACK', nproc: 'RLIMIT_NPROC', fsize: 'RLIMIT_FSIZE', cpu: 'RLIMIT_CPU', data: 'RLIMIT_DATA', as: 'RLIMIT_AS', memlock: 'RLIMIT_MEMLOCK' };
+  const rlimStr = (l) => '{rlim_cur=' + (l[0] === Infinity ? 'RLIM64_INFINITY' : l[0]) + ', rlim_max=' + (l[1] === Infinity ? 'RLIM64_INFINITY' : l[1]) + '}';
+  def('prlimit64', (k, p, a) => {
+    const q = a[0] ? k.procs.get(a[0]) : p; if (!q) return -E.ESRCH;
+    const cur = q.rlim[a[1]]; if (!cur) return -E.EINVAL;
+    const old = cur.slice(), nl = a[2];
+    if (nl) {
+      if (nl[0] > nl[1]) return -E.EINVAL;
+      if (nl[1] > cur[1] && p.euid !== 0) return -E.EPERM;
+      if (a[1] === 'nofile' && nl[1] > 1048576) return -E.EPERM;
+      q.rlim[a[1]] = [nl[0], nl[1]];
+    }
+    return old;
+  }, (a, r) => (a[0] | 0) + ', ' + (RLIMNAME[a[1]] || a[1]) + ', ' + (a[2] ? rlimStr(a[2]) : 'NULL') + ', ' + (Array.isArray(r) ? rlimStr(r) : ADDR), () => '0');
   def('getuid', (k, p) => p.uid);
   def('geteuid', (k, p) => p.euid);
   def('getgid', (k, p) => p.gid);
@@ -1306,6 +1383,7 @@
     if (!ino) {
       if (!(flags & O.CREAT)) return -E.ENOENT;
       if (w.trailing) return -E.EISDIR;
+      if (this.roMnt(w)) return -E.EROFS;
       if (w.parent.fs.synth) return -E.ENOENT;
       if (w.parent.fs.ops) return -E.EPERM;
       if (!this.may(p, w.parent, 3)) return -E.EACCES;
@@ -1319,12 +1397,14 @@
       if (ino.type === 'l') return -E.ELOOP;
       if ((flags & O.DIRECTORY) && ino.type !== 'd') return -E.ENOTDIR;
       if (ino.type === 'd' && (acc !== O.RDONLY || (flags & O.CREAT))) return -E.EISDIR;
+      if (acc !== O.RDONLY && (ino.type === 'f' || ino.type === 'd') && this.roMnt(w)) return -E.EROFS;
       if (!this.may(p, ino, acc === O.RDONLY ? 4 : acc === O.WRONLY ? 2 : 6)) return -E.EACCES;
       if (ino.type === 's') return -E.ENXIO;
     }
     if ((flags & O.TRUNC) && acc !== O.RDONLY && ino.type === 'f' && !created && !ino.fs.synth && !ino.dyn) { if (ino.size) { this.setData(ino, ''); this.emit('truncate', ino); } ino.mtime = ino.ctime = this.now(); }
     const full = w.via ? w.via.path : this.fullPath(p, w.inode ? w : { parent: w.parent, name: w.name });
     const ofd = this.openInode(p, ino, flags, full);
+    ofd.mnt = w.mnt;
     if (ino.type === 'c') { const dv = this.devOf(ino); if (dv && dv.open) dv.open(this, p, ofd, ino); }
     if (w.via) { if (w.via.err) ofd.err = true; if (w.via.tty) ofd.tty = w.via.tty; }
     const fd = this.fdAlloc(p, ofd, 0, flags & O.CLOEXEC);
@@ -1407,6 +1487,7 @@
     const w = this.walk(p, path, false);
     if (typeof w === 'number') return w;
     if (w.inode) return -E.EEXIST;
+    if (this.roMnt(w)) return -E.EROFS;
     if (w.parent.fs.synth) return -E.ENOENT;
     if (w.parent.fs.ops && kind !== 'mkdir') return -E.EPERM;   // cgroup2 など：mkdir だけできる
     if (!this.may(p, w.parent, 3)) return -E.EACCES;
@@ -1419,6 +1500,7 @@
     if (typeof w === 'number') return w;
     if (!w.inode) return -E.ENOENT;
     if (!w.parent) return w.inode === p.root || w.inode.fs.root === w.inode ? -E.EBUSY : -E.EINVAL;
+    if (this.roMnt(w)) return -E.EROFS;
     if (w.parent.fs.synth) return -E.EPERM;
     if (w.parent.fs.ops && kind !== 'rmdir') return -E.EPERM;
     if (w.inode.fs !== w.parent.fs) return -E.EBUSY;
@@ -1481,10 +1563,13 @@
     const from = k.preRemove(p, String(a[0]).replace(/(.)\/+$/, '$1')); if (typeof from === 'number') return from;
     const to = k.walk(p, String(a[1]).replace(/(.)\/+$/, '$1'), false); if (typeof to === 'number') return to;
     if (!to.parent) return -E.EBUSY;
+    if (k.roMnt(to)) return -E.EROFS;
+    if (to.mnt !== from.mnt && from.mnt && to.mnt && (from.mnt.root || to.mnt.root)) return -E.EXDEV;
     if (to.parent.fs.synth) return -E.EPERM;
     if (to.parent.fs !== from.inode.fs) return -E.EXDEV;
     if (!k.may(p, to.parent, 3)) return -E.EACCES;
     const src = from.inode, dst = to.inode;
+    if (src.type !== 'd' && (/[^/]\/+$/.test(String(a[0])) || /[^/]\/+$/.test(String(a[1])))) return -E.ENOTDIR;
     if (src === dst) return 0;
     if (src.type === 'd') { for (let d = to.parent; ; d = d.parent) { if (d === src) return -E.EINVAL; if (d === d.parent) break; } }
     if (dst) {
@@ -1507,7 +1592,7 @@
     i.mode = mode & 0o7777; i.ctime = this.now();
     return 0;
   };
-  def('chmod', (k, p, a) => { const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i; const r = k.doChmod(p, i, a[1] | 0); if (r === 0) k.ev('fs', { op: 'chmod', path: dec(String(a[0])), ino: i.ino, pid: p.pid }); return r; }, (a) => pstr(a) + ', 0' + oct(a[1] | 0, 3));
+  def('chmod', (k, p, a) => { const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i; if (k.roMnt()) return -E.EROFS; const r = k.doChmod(p, i, a[1] | 0); if (r === 0) k.ev('fs', { op: 'chmod', path: dec(String(a[0])), ino: i.ino, pid: p.pid }); return r; }, (a) => pstr(a) + ', 0' + oct(a[1] | 0, 3));
   def('fchmod', (k, p, a) => { const o = getOfd(p, a[0]); return o ? k.doChmod(p, o.inode, a[1] | 0) : -E.EBADF; }, (a) => a[0] + ', 0' + oct(a[1] | 0, 3));
   K.doChown = function (p, i, uid, gid) {
     if (i.fs.synth) return -E.EPERM;
@@ -1523,23 +1608,26 @@
     i.ctime = this.now();
     return 0;
   };
-  def('chown', (k, p, a) => { const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i; const r = k.doChown(p, i, a[1], a[2]); if (r === 0) k.ev('fs', { op: 'chown', path: dec(String(a[0])), ino: i.ino, pid: p.pid }); return r; }, (a) => pstr(a) + ', ' + a[1] + ', ' + a[2]);
-  def('lchown', (k, p, a) => { const i = k.namei(p, String(a[0]), false); return typeof i === 'number' ? i : k.doChown(p, i, a[1], a[2]); }, (a) => pstr(a) + ', ' + a[1] + ', ' + a[2]);
+  def('chown', (k, p, a) => { const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i; if (k.roMnt()) return -E.EROFS; const r = k.doChown(p, i, a[1], a[2]); if (r === 0) k.ev('fs', { op: 'chown', path: dec(String(a[0])), ino: i.ino, pid: p.pid }); return r; }, (a) => pstr(a) + ', ' + a[1] + ', ' + a[2]);
+  def('lchown', (k, p, a) => { const i = k.namei(p, String(a[0]), false); return typeof i === 'number' ? i : k.roMnt() ? -E.EROFS : k.doChown(p, i, a[1], a[2]); }, (a) => pstr(a) + ', ' + a[1] + ', ' + a[2]);
   def('umask', (k, p, a) => { const o = p.umask; p.umask = a[0] & 0o777; return o; }, (a) => '0' + oct(a[0] | 0, 3), (r) => '0' + oct(r, 3));
   K.doTruncate = function (p, i, len) {
     if (i.type === 'd') return -E.EISDIR;
     if (i.type !== 'f' || i.fs.synth) return -E.EINVAL;
     len = Math.max(0, len | 0);
-    const d = i.data, r = this.setData(i, len <= d.length ? d.slice(0, len) : d + '\0'.repeat(len - d.length));
+    const d = i.data;
+    if (len > d.length) for (let j = Math.ceil(d.length / BS); j < Math.ceil(len / BS); j++) (i.holes || (i.holes = new Set())).add(j);   // 伸ばした部分は穴
+    const r = this.setData(i, len <= d.length ? d.slice(0, len) : d + '\0'.repeat(len - d.length));
     if (r < 0) return r;
     this.emit('truncate', i);
     i.mtime = i.ctime = this.now();
     return 0;
   };
-  def('truncate', (k, p, a) => { const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i; if (!k.may(p, i, 2)) return -E.EACCES; return k.doTruncate(p, i, a[1]); }, (a) => pstr(a) + ', ' + a[1]);
+  def('truncate', (k, p, a) => { const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i; if (k.roMnt()) return -E.EROFS; if (!k.may(p, i, 2)) return -E.EACCES; return k.doTruncate(p, i, a[1]); }, (a) => pstr(a) + ', ' + a[1]);
   def('ftruncate', (k, p, a) => { const o = getOfd(p, a[0]); if (!o) return -E.EBADF; if ((o.flags & 3) === O.RDONLY) return -E.EINVAL; return k.doTruncate(p, o.inode, a[1]); }, (a) => a[0] + ', ' + a[1]);
   def('utimensat', (k, p, a) => {
     const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i;
+    if (k.roMnt()) return -E.EROFS;
     if (i.fs.synth) return -E.EPERM;
     const t = a[1];
     if (p.euid !== 0 && p.euid !== i.uid && (t || !k.may(p, i, 2))) return t ? -E.EPERM : -E.EACCES;
@@ -1559,47 +1647,79 @@
     return 0;
   }, (a) => pstr(a) + ', ' + ({ p: 'S_IFIFO', c: 'S_IFCHR', b: 'S_IFBLK', f: 'S_IFREG', s: 'S_IFSOCK' }[BITSTYPE[a[1] & S.IFMT] || 'f']) + '|0' + oct(a[1] & 0o7777, 3) + (a[2] ? ', makedev(' + (a[2] >> 8) + ', ' + (a[2] & 255) + ')' : ''));
   def('chdir', (k, p, a) => {
-    const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i;
+    const w = k.walk(p, String(a[0]), true); if (typeof w === 'number') return w;
+    const i = w.inode; if (!i) return -E.ENOENT;
     if (i.type !== 'd') return -E.ENOTDIR;
     if (!k.may(p, i, 1)) return -E.EACCES;
-    p.cwd = i;
+    p.cwd = i; p.cwdStack = w.stack && w.stack[0].ino === p.root ? w.stack : null;
     k.ev('chdir', { pid: p.pid, path: dec(k.pathOf(p, i) || '') });
     return 0;
   }, pstr);
-  def('fchdir', (k, p, a) => { const o = getOfd(p, a[0]); if (!o) return -E.EBADF; if (o.inode.type !== 'd') return -E.ENOTDIR; if (!k.may(p, o.inode, 1)) return -E.EACCES; p.cwd = o.inode; return 0; }, (a) => String(a[0]));
-  def('getcwd', (k, p) => k.pathOf(p, p.cwd) || -E.ENOENT, (a, r) => (typeof r === 'string' ? quote(r, 4096) : ADDR) + ', 4096', (r) => String(r.length + 1));
+  def('fchdir', (k, p, a) => { const o = getOfd(p, a[0]); if (!o) return -E.EBADF; if (o.inode.type !== 'd') return -E.ENOTDIR; if (!k.may(p, o.inode, 1)) return -E.EACCES; p.cwd = o.inode; p.cwdStack = null; return 0; }, (a) => String(a[0]));
+  def('getcwd', (k, p) => k.cwdPath(p) || -E.ENOENT, (a, r) => (typeof r === 'string' ? quote(r, 4096) : ADDR) + ', 4096', (r) => String(r.length + 1));
 
   def('mount', (k, p, a) => {
     if (p.euid !== 0) return -E.EPERM;
     const w = k.walk(p, String(a[1]), true); if (typeof w === 'number') return w;
     if (!w.inode) return -E.ENOENT;
+    const fl = a[3] | 0, MS_RDONLY = 1, MS_REMOUNT = 32, MS_BIND = 4096;
+    const data = String(a[4] || '').split(',').filter((o) => o && o !== 'ro' && o !== 'rw' && o !== 'remount' && o !== 'bind').join(',');
+    if (fl & MS_REMOUNT) {
+      // 付け直し：ro / rw を切り替える（バインドマウントなら、そのマウントだけ）
+      const m = w.mnt;
+      if (!m || (m.root || m.fs.root) !== w.inode) return -E.EINVAL;
+      m.ro = !!(fl & MS_RDONLY);
+      m.opts = (m.ro ? 'ro' : 'rw') + m.opts.replace(/^r[ow]/, '');
+      k.ev('mount', { pid: p.pid, target: String(a[1]), fstype: m.type, remount: true });
+      return 0;
+    }
+    if (fl & MS_BIND) {
+      // バインドマウント：すでに木の中にあるディレクトリを、別の場所にも見せる（中身は同じ inode）
+      const src = k.walk(p, String(a[0]), true); if (typeof src === 'number') return src;
+      if (!src.inode) return -E.ENOENT;
+      if ((src.inode.type === 'd') !== (w.inode.type === 'd')) return -E.ENOTDIR;
+      if (w.inode.type !== 'd') return -E.ENOTDIR;
+      const sm = src.mnt, m = k.doMount(p.ns, src.inode.fs, w.inode, k.cwdPathOf(p, String(a[1])), { opts: (sm ? sm.opts : 'rw,relatime') });
+      m.root = src.inode; m.source = sm ? sm.source : src.inode.fs.source; m.bindFrom = k.fullPath(p, src);
+      (p.ns.mnt.binds || (p.ns.mnt.binds = new Set())).add(src.inode);
+      k.ev('mount', { pid: p.pid, target: String(a[1]), fstype: m.type, bind: true });
+      return 0;
+    }
     if (w.inode.type !== 'd') return -E.ENOTDIR;
     const type = String(a[2] || ''), mk = k.fstypes[type];
     if (!mk) return -E.ENODEV;
-    const fs = mk(k, String(a[0] || type), a[4], p);
+    const fs = mk(k, String(a[0] || type), data, p);
     if (typeof fs === 'number') return fs;
     let covered = w.inode;
     if (covered === covered.fs.root) { const m = k.mountOf(p.ns, covered.fs); if (m && m.covered) { /* 重ねてマウント：いまの根を覆う */ } }
     if (covered.fs.synth && covered !== covered.fs.root && !(covered.node && covered.node.pin)) return -E.EINVAL;
-    k.doMount(p.ns, fs, covered, k.pathOf(p, covered) || String(a[1]), { opts: a[4] ? 'rw,relatime,' + a[4] : undefined });
+    const m = k.doMount(p.ns, fs, covered, k.cwdPathOf(p, String(a[1])) || k.pathOf(p, covered) || String(a[1]), { opts: (fl & MS_RDONLY ? 'ro' : 'rw') + ',relatime' + (fs.mopts ? ',' + fs.mopts : data ? ',' + data : '') });
+    if (fl & MS_RDONLY) m.ro = true;
     k.ev('mount', { pid: p.pid, target: String(a[1]), fstype: type });
     return 0;
-  }, (a) => quote(String(a[0] || '')) + ', ' + quote(String(a[1])) + ', ' + quote(String(a[2] || '')) + ', ' + (a[3] | 0) + ', ' + (a[4] ? quote(String(a[4])) : 'NULL'));
+  }, (a) => quote(String(a[0] || '')) + ', ' + quote(String(a[1])) + ', ' + (a[2] ? quote(String(a[2])) : 'NULL') + ', ' + (['MS_RDONLY', 'MS_REMOUNT', 'MS_BIND'].filter((n, i) => (a[3] | 0) & [1, 32, 4096][i]).join('|') || '0') + ', ' + (a[4] ? quote(String(a[4])) : 'NULL'));
+  // パスの文字列 → そのディレクトリの絶対パス（たどった道で）
+  K.cwdPathOf = function (p, path) { const w = this.walk(p, path, true); if (typeof w !== 'object' || !w.stack || w.stack[0].ino !== p.root) return null; return '/' + w.stack.slice(1).map((e) => (e.via || e.ino).name).join('/'); };
   def('umount2', (k, p, a) => {
     if (p.euid !== 0) return -E.EPERM;
-    const i = k.namei(p, String(a[0]), true); if (typeof i === 'number') return i;
-    if (i !== i.fs.root) return -E.EINVAL;
-    const m = k.mountOf(p.ns, i.fs);
-    if (m && !m.covered) return -E.EBUSY;   // / は外せない
-    if (!m) return -E.EINVAL;
+    const w = k.walk(p, String(a[0]), true); if (typeof w === 'number') return w;
+    const i = w.inode; if (!i) return -E.ENOENT;
+    const m = w.mnt;
+    if (!m || (m.root || m.fs.root) !== i) return -E.EINVAL;
+    if (!m.covered || m.pinned) return -E.EBUSY;   // / と、起動時からの proc・sys・dev は外せない
+    const inM = (ino, mm) => (mm ? mm === m : !m.root && ino.fs === i.fs);
     for (const q of k.procs.values()) {
       if (q.ns.mnt !== p.ns.mnt) continue;
-      if (q.cwd && q.cwd.fs === i.fs) return -E.EBUSY;
-      for (const e of q.fds) if (e && e.ofd.inode.fs === i.fs) return -E.EBUSY;
+      const cs = q.cwdStack && q.cwdStack[q.cwdStack.length - 1].ino === q.cwd ? q.cwdStack : null;
+      if (q.cwd && (cs ? cs.some((e) => e.mnt === m) : inM(q.cwd, null))) return -E.EBUSY;
+      for (const e of q.fds) if (e && inM(e.ofd.inode, e.ofd.mnt)) return -E.EBUSY;
     }
-    for (const m2 of p.ns.mnt.list) if (m2.covered && m2.covered.fs === i.fs) return -E.EBUSY;
+    for (const m2 of p.ns.mnt.list) if (m2 !== m && m2.covered && (m.root ? false : m2.covered.fs === i.fs)) return -E.EBUSY;
     p.ns.mnt.list.splice(p.ns.mnt.list.indexOf(m), 1);
     p.ns.mnt.covered.delete(m.covered);
+    if (m.root && p.ns.mnt.binds) p.ns.mnt.binds.delete(m.root);
+    // 同じ場所に重ねていた下のマウントがあれば、それがまた見える
+    for (let j = p.ns.mnt.list.length - 1; j >= 0; j--) if (p.ns.mnt.list[j].covered === m.covered) { p.ns.mnt.covered.set(m.covered, p.ns.mnt.list[j]); break; }
     k.ev('umount', { pid: p.pid, target: String(a[0]) });
     return 0;
   }, (a) => pstr(a) + ', 0');
@@ -1631,7 +1751,7 @@
     if (a[0] !== 'PTRACE_TRACEME') return -E.EINVAL;
     const o = a[1] || {}, e = p.fds[o.fd === undefined ? 2 : o.fd];
     if (!e) return -E.EBADF;
-    const sink = { ofd: e.ofd, pids: new Set(), users: 0, filter: o.filter ? new Set(o.filter) : null };
+    const sink = { ofd: e.ofd, pids: new Set(), users: 0, filter: o.filter ? new Set(o.filter) : null, count: o.count || null };
     e.ofd.refs++;
     k.setTrace(p, sink, { live: false, follow: !!o.follow, onExec: true });
     return 0;
@@ -1674,6 +1794,8 @@
   (a, r) => ((a[0] | 0) === -1 ? 'RUSAGE_CHILDREN' : 'RUSAGE_SELF') + ', {ru_utime={tv_sec=' + Math.floor(r.utime / 1000) + ', tv_usec=' + (r.utime % 1000) * 1000 + '}, ru_stime={tv_sec=' + Math.floor(r.stime / 1000) + ', tv_usec=' + (r.stime % 1000) * 1000 + '}, ...}', () => '0');
   for (const n of ['brk', 'mmap', 'munmap', 'mprotect', 'setpriority', 'getpriority', 'socket', 'bind', 'listen', 'accept', 'connect', 'shutdown', 'getsockname', 'getpeername', 'unshare', 'setns', 'chroot', 'pivot_root', 'reboot']) def(n, () => -E.ENOSYS, (a) => a.map((x) => (typeof x === 'string' ? quote(x) : typeof x === 'number' ? String(x) : '...')).join(', '));
   // シミュレータ専用（strace には出ない）：セッションのシェルが次のコマンド行を待つ
+  // 本物の cat が fstat(1) と fstat(3) で確かめること（入力と出力が同じ普通のファイルか）を、strace に出さずに調べる
+  def('_samefile', (k, p, a) => { const x = getOfd(p, a[0]), y = getOfd(p, a[1]); return !!(x && y && x.inode === y.inode && x.inode.type === 'f' && x.inode.size > 0); });
   def('_prompt', (k, p, a) => {
     const ses = p.ses; if (!ses) return -E.ENOSYS;
     if (ses.pending) { const j = ses.pending; ses.pending = null; ses.idle = false; return j; }
@@ -1731,6 +1853,13 @@
       open(k2, p, ofd, ino) { ofd.tty = ttyOf(p, ino, null); },
       read(k2, p, ofd, n, ino) {
         const t = ttyOf(p, ino, ofd); if (!t) return -E.ENXIO;
+        // 端末の前景にいないプロセスグループが読もうとした：SIGTTIN でグループごと止める（無視・ブロックしていれば EIO）
+        if (t.sid && p.sid === t.sid && t.fg && p.pgid !== t.fg) {
+          const bit = 1 << SIG.TTIN;
+          if (p.sig.act[SIG.TTIN] === 'ign' || (p.sig.mask & bit)) return -E.EIO;
+          k.killpg(p.pgid, SIG.TTIN, null);
+          return -E.EINTR;
+        }
         if (t.inbuf.length) { let i = t.inbuf.indexOf('\n'); i = i < 0 ? t.inbuf.length : i + 1; if (i > n) i = n; const d = t.inbuf.slice(0, i); t.inbuf = t.inbuf.slice(i); return d; }
         if (t.eof) { t.eof = false; return ''; }
         if (!t.interactive) return '';
@@ -1741,7 +1870,8 @@
         if (t.out) { const s = ofd.err ? 'err' : 'out', l = t.out.length; if (l && t.out[l - 1].s === s) t.out[l - 1].text += d; else t.out.push({ s, text: d }); t.outBytes += d.length; }
         return d.length;
       },
-      poll(k2, p, ofd, ino) { const t = ttyOf(p, ino, ofd); return t ? { r: t.inbuf.length > 0 || t.eof || !t.interactive, w: true, rq: t.rwait } : { r: true, w: true }; },
+      // 後ろ（前景でないプロセスグループ）からの poll は、打たれた文字があるときだけ「読める」（読めば SIGTTIN で止まる）
+      poll(k2, p, ofd, ino) { const t = ttyOf(p, ino, ofd); if (t && t.sid && p.sid === t.sid && t.fg && p.pgid !== t.fg) return { r: t.inbuf.length > 0, w: true, rq: t.rwait }; return t ? { r: t.inbuf.length > 0 || t.eof || !t.interactive, w: true, rq: t.rwait } : { r: true, w: true }; },
       ioctl(k2, p, ofd, req, arg, ino) {
         const t = ttyOf(p, ino, ofd); if (!t) return -E.ENOTTY;
         if (req === TIO.TCGETS) return 0;
@@ -1764,7 +1894,14 @@
     this.pipefs = this.mkfs('pipefs', 'pipefs', { dev: 0xd, blocks: 0 });
     this.doMount(this.ns0, rootfs, null, '/', { opts: 'rw,relatime' });
     this.kcred.root = this.kcred.cwd = rootfs.root;
-    this.fstypes.tmpfs = (k2, src, data) => { let blocks = 2048; const m = /size=(\d+)([kKmM]?)/.exec(data || ''); if (m) blocks = Math.ceil(+m[1] * ({ k: 1024, m: 1048576 }[m[2].toLowerCase()] || 1) / BS); return k2.mkfs('tmpfs', src || 'tmpfs', { blocks, mode: 0o1777 }); };
+    this.fstypes.tmpfs = (k2, src, data) => {
+      let blocks = 2048; const m = /size=(\d+)([kKmMgG]?)/.exec(data || ''); if (m) blocks = Math.ceil(+m[1] * ({ k: 1024, m: 1048576, g: 1073741824 }[m[2].toLowerCase()] || 1) / BS);
+      const ni = /nr_inodes=(\d+)([kKmM]?)/.exec(data || ''), inodes = ni ? +ni[1] * ({ k: 1024, m: 1048576 }[ni[2].toLowerCase()] || 1) : 7424;   // 本物の既定は「メモリのページ数の半分」
+      const fs = k2.mkfs('tmpfs', src || 'tmpfs', { blocks, mode: 0o1777, inodes });
+      const md = /mode=([0-7]+)/.exec(data || ''); if (md) fs.root.mode = parseInt(md[1], 8);
+      fs.mopts = 'size=' + blocks * 4 + 'k' + (ni ? ',nr_inodes=' + inodes : '') + (md ? ',mode=' + md[1] : '');
+      return fs;
+    };
     this.fstypes.ramfs = (k2, src) => k2.mkfs('ramfs', src || 'ramfs', { blocks: 1 << 20, mode: 0o755 });
     this.fstypes.proc = (k2, src, data, p) => (p && p.ns && p.ns.pid && p.ns.pid.level > 0 && k.mkProcfs ? k.mkProcfs(p.ns.pid) : k.procfs);
     this.fstypes.devtmpfs = () => k.devfs;
@@ -2207,7 +2344,7 @@
     mount: 'ファイルシステムをマウントする', umount2: 'マウントを外す', statfs: 'ファイルシステムの空きを調べる', nanosleep: '指定した時間だけ眠る', sched_yield: 'CPU をほかのプロセスに譲る',
     fsync: 'そのファイルの変更をディスクに書き出す', sync: 'すべての変更をディスクに書き出す', ioctl: 'デバイス固有の操作（端末の設定など）', uname: 'カーネルの名前とバージョン', sethostname: 'ホスト名を変える',
     clock_gettime: 'いまの時刻', getrandom: '乱数を得る', ptrace: 'ほかのプロセスを追跡する（strace が使う）',
-    poll: '複数の fd のどれかが読める・書けるようになるまで待つ', times: 'このプロセスと子が使った CPU 時間', getrusage: '使った資源（CPU 時間、ページフォルトの回数など）',
+    poll: '複数の fd のどれかが読める・書けるようになるまで待つ', times: 'このプロセスと子が使った CPU 時間', getrusage: '使った資源（CPU 時間、ページフォルトの回数など）', prlimit64: '資源の上限（開けるファイルの数、core の大きさなど）を読む・変える',
     brk: 'ヒープの終わりを動かす', mmap: 'メモリの領域を割り当てる・ファイルを写す', munmap: 'mmap した領域を返す', mprotect: 'メモリの保護を変える', setpriority: 'nice 値を変える', getpriority: 'nice 値を調べる',
     socket: 'ソケットを作る', bind: 'ソケットに番地（ポート）をつける', listen: '接続を待ち受ける', accept: '接続を受け入れる', connect: '接続する', shutdown: '接続の片側を閉じる',
     getsockname: '自分側の番地', getpeername: '相手側の番地', unshare: '新しい名前空間に移る', setns: '既存の名前空間に入る', chroot: 'ルートディレクトリを変える', pivot_root: 'ルートのマウントを入れ替える', reboot: '再起動・停止',
@@ -2221,8 +2358,8 @@
     files: [],          // rootfs に足すファイル（bin.js が登録する）
     sys, Ctx, Reader,
     ERRNO, ERRMSG, ENAME, SIG, SIGNAME, SIGDESC, O, S, W, F, TIO, AT_FDCWD, PIPE_CAP, PIPE_BUF,
-    strerror, isErr, sigDefault, ERRJA, SIGJA, SYSJA,
-    util: { enc, dec, basename, dirname, normpath, modeStr, oct, strftime, tm, quote, MON, WDAY, TZ, TYPEBITS, BITSTYPE },
+    strerror, isErr, sigDefault, ERRJA, SIGJA, SYSJA, SYSCALL_ORDER: SYSCALL_NAMES,
+    util: { crypt, saltOf, enc, dec, basename, dirname, normpath, modeStr, oct, strftime, tm, quote, MON, WDAY, TZ, TYPEBITS, BITSTYPE },
     kernel: {
       Kernel, K, SC, BLOCK, RoundRobin, Machine, M, crt, getOfd,
       // 部品を足す：LNX.kernel.plugin('mm', (k) => { …; return 部品の状態; })。起動のたびに、rootfs を作った後・PID 1 を作る前に呼ばれる
