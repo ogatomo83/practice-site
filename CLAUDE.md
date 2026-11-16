@@ -7,6 +7,7 @@
 - `cpu/` — 図解 CPU（自作の RISC-V エミュレータ `rv.js` と論理回路シミュレータ `logic.js` で、本文のアセンブリと回路を実行。判定は `grade.js` に集約。設計は `cpu/DESIGN.md`）
 - `linux/` — 図解 Linux（自作の教育用カーネル「小さな Linux」（`src/assets/kernel.js` ほか。読み込み順は `src/lib/lnx-files.mjs`）で、本文のシェルのコマンドを実行。判定は `grade.js` に集約。設計と記法は `linux/DESIGN.md`）
 - `gcp/` — 図解 GCP（自作の「小さな GCP」（Cloud Shell と gcloud・bq・curl・node、各サービスの模型。`src/assets/core.js` ほか。読み込み順は `src/lib/gcp-files.mjs`）で、本文の gcloud / bq のコマンドを実行。BigQuery の SQL は DuckDB-Wasm、Cloud SQL は PGlite。判定は `grade.js` に集約。設計と記法は `gcp/DESIGN.md`）
+- `linuc/` — 図解 LinuC（LinuC レベル1 の対策。図解 Linux の build と小さな Linux をそのまま使い、練習問題 `:::q`（`build.mjs` の `qBlock`、出題範囲と重要度は `TOPICS`）、苦手の復習 `review.html`、模擬試験 `mock.html`（`src/assets/qa.js`）を足した。README.md に記法）
 
 新しいサイトを作る・章や確認問題を足す・実行環境を作る・検査するときは、**`zukai-site` スキル**の手順に従う（`.claude/skills/zukai-site/`。粒度は `references/granularity.md`、実行環境は `references/runtime.md`）。
 
@@ -15,7 +16,7 @@
 - 編集するのは `src/` だけ。`site/` は生成物なので手で直さない。直したら各サイトのディレクトリで `node src/build.mjs` を実行する
 - 原稿は `src/chapters/chNN.md`。記法は各サイトの README.md と、スキルの `references/notation.md` を見る
 - 見出しの `{#id}` は変えない（読了の記録、リンク、確認問題の ID が依存している）
-- localStorage のキーの接頭辞はサイトごとに別にする（rust: `zr-`、postgresql: `zp-`、cpu: `zc-`、linux: `zl-`、gcp: `zg-`）
+- localStorage のキーの接頭辞はサイトごとに別にする（rust: `zr-`、postgresql: `zp-`、cpu: `zc-`、linux: `zl-`、gcp: `zg-`、linuc: `zq-`）
 - 本文に書く数値や挙動は、実際に動かして確かめたものだけにする。PGlite の制約（接続は 1 つ、並列クエリなし、ファイルを使う COPY は不可）に当たる内容は、図と実行しない例で説明する
 - 確認問題は「出力が合えば正解」。誤答でも同じ出力になる問題、`now()` や xmin のように実行ごとに変わる値を答えにする問題は作らない
 - git リポジトリ（https://github.com/ogatomo83/practice-site、このディレクトリがルート）。`site/` も生成物としてコミットする。main を push すると GitHub Pages（https://ogatomo83.github.io/practice-site/ ）に公開される。`.nojekyll` は消さない（消すと原稿の front matter を Jekyll が処理してビルドが失敗する）。原稿を書き換えたら `node src/build.mjs` で再ビルドしてから一緒にコミットする
