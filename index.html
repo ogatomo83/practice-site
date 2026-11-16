@@ -42,7 +42,8 @@
   .pg .k { color: #2b5a80; }
   .cpu .k { color: #3d7a4f; }
   .lnx .k { color: #8a5a00; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rust .k { color: #e8936a; } :root:not([data-theme="light"]) .pg .k { color: #92b8dc; } :root:not([data-theme="light"]) .cpu .k { color: #8fc79f; } :root:not([data-theme="light"]) .lnx .k { color: #e0b45c; } }
+  .gcp .k { color: #2f6db5; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rust .k { color: #e8936a; } :root:not([data-theme="light"]) .pg .k { color: #92b8dc; } :root:not([data-theme="light"]) .cpu .k { color: #8fc79f; } :root:not([data-theme="light"]) .lnx .k { color: #e0b45c; } :root:not([data-theme="light"]) .gcp .k { color: #8db8ef; } }
   .t { font-size: 19px; font-weight: 500; }
   .d { font-size: 14px; color: var(--t2); }
   .m { font: 400 12px "JetBrains Mono", ui-monospace, monospace; color: var(--t3); margin-top: auto; padding-top: 8px; }
@@ -76,6 +77,12 @@
       <span class="t">図解 Linux</span>
       <span class="d">シェル、ファイル、権限、パイプから、プロセス、シグナル、システムコール、VFS、仮想メモリ、スケジューラ、ネットワーク、コンテナまで。ブラウザで動く小さな Linux で、カーネルの中をのぞきながら。</span>
       <span class="m">22 章 · 図 83 · 実行できるコマンド 679 · 確認問題 78</span>
+    </a>
+    <a class="card gcp" href="gcp/site/index.html">
+      <span class="k">docs/gcp</span>
+      <span class="t">図解 GCP</span>
+      <span class="d">組織・フォルダ・プロジェクト、請求先、アカウントの種類、IAM を固めてから、Cloud Storage、Compute Engine、VPC、Cloud Run、Pub/Sub、Firestore、Cloud SQL、BigQuery、Logging へ。ブラウザで動く小さな GCP で gcloud と bq を打ちながら。</span>
+      <span class="m">19 章 · 図 81 · 実行できるコマンド 460 · 確認問題 64</span>
     </a>
   </div>
 </main>
