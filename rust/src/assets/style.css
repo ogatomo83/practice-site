@@ -74,7 +74,10 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; scroll-padding-top: 80px; }
+html { -webkit-text-size-adjust: 100%; }
+/* 見出しへのジャンプ (#id・scrollIntoView) を sticky のヘッダーの下に出す。html の scroll-padding-top にすると、
+   ヘッダーの検索欄に 1 文字打つたびに Chrome が「検索欄が余白に隠れている」とみなしてページを上へ戻すので、飛び先の側に付ける */
+[id]:not(input, textarea, select), .lq-sum { scroll-margin-top: 80px; }
 body {
   margin: 0; background: var(--bg); color: var(--t1);
   font: 400 16px/1.85 var(--sans);
