@@ -410,6 +410,7 @@ ${LNX_FILES.map((f) => `<script src="assets/${f}"></script>`).join('\n')}
 <script src="assets/lnxview-adv.js"></script>` : ''}
 ${quiz ? '<script src="assets/quiz.js"></script>' : ''}
 ${play ? '<script src="assets/samples.js"></script>\n<script src="assets/play.js"></script>' : ''}
+<script src="assets/nvim-nav.js"></script>
 </body>
 </html>`;
 }

@@ -108,7 +108,7 @@
         <section class="cv-sec cv-ins"></section>
         <section class="cv-sec cv-regs"><h4>レジスタ</h4><div class="rc-grid"></div></section>
         <section class="cv-sec cv-mem"><h4>メモリ</h4><div class="cv-memb"></div></section>
-        <section class="cv-sec cv-io"><div class="cv-scr" hidden><h4>画面</h4><div class="scr-wrap" tabindex="0" aria-label="画面。ここをクリックするとキー入力を受け取ります"><canvas class="scr" width="32" height="32"></canvas></div></div><div class="cv-con" hidden><h4>コンソール</h4><pre class="out-console"></pre></div></section>
+        <section class="cv-sec cv-io"><div class="cv-scr" hidden><h4>画面</h4><div class="scr-wrap" tabindex="0" data-nvim-nav-ignore aria-label="画面。ここをクリックするとキー入力を受け取ります"><canvas class="scr" width="32" height="32"></canvas></div></div><div class="cv-con" hidden><h4>コンソール</h4><pre class="out-console"></pre></div></section>
       </div>
     </div>`;
     const el = $('.cv', host);

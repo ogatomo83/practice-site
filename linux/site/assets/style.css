@@ -1356,3 +1356,9 @@ button.ft-tw:hover { background: var(--raised); color: var(--t1); }
 .lr-diff-k { flex: none; width: 5.5em; color: var(--t3); }
 .lr-diff-r code { min-width: 0; background: none; padding: 0; font: 400 12.5px/1.6 var(--mono); color: var(--t1); white-space: pre-wrap; overflow-wrap: anywhere; }
 .lr-dx { background: color-mix(in srgb, var(--warn) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+/* ---------------------------------------------------------------- nvim-nav（左下のモード表示） */
+/* 下のパネルを開いている間は、モード表示をパネルの上に出す */
+body.dbv-open { --nvn-bottom: calc(var(--dbv-h, 36vh) + 12px); }
+/* 左の目次の最後の項目を、モード表示より上までスクロールできるようにする */
+.side { padding-bottom: 56px; }

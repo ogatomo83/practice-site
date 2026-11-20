@@ -359,6 +359,7 @@ ${runner ? `<aside class="dbv" id="dbv" hidden aria-label="データベースの
 <script src="assets/sql.js"></script>
 <script src="assets/dbview.js"></script>` : ''}
 ${quiz ? '<script src="assets/quiz.js"></script>' : ''}
+<script src="assets/nvim-nav.js"></script>
 </body>
 </html>`;
 }

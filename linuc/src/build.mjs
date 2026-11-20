@@ -486,6 +486,7 @@ ${quiz ? '<script src="assets/quiz.js"></script>' : ''}
 <script src="assets/qbank.js"></script>
 <script src="assets/qa.js"></script>
 ${play ? '<script src="assets/samples.js"></script>\n<script src="assets/play.js"></script>' : ''}
+<script src="assets/nvim-nav.js"></script>
 </body>
 </html>`;
 }

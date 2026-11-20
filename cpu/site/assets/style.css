@@ -1243,3 +1243,9 @@ body.no-toc .layout { grid-template-columns: 272px minmax(0, 1fr); }
 .hero-stats dt, .hero-stats dd { white-space: nowrap; }
 .hero-visual .step-btn { padding-left: 6px; padding-right: 10px; }
 @media (max-width: 600px) { .pp .pl { position: static; } }
+
+/* ---------------------------------------------------------------- nvim-nav（左下のモード表示） */
+/* 下のパネルを開いている間は、モード表示をパネルの上に出す */
+body.dbv-open { --nvn-bottom: calc(var(--dbv-h, 36vh) + 12px); }
+/* 左の目次の最後の項目を、モード表示より上までスクロールできるようにする */
+.side { padding-bottom: 56px; }

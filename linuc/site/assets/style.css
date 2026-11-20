@@ -1385,3 +1385,9 @@ button.ft-tw:hover { background: var(--raised); color: var(--t1); }
 .lq-score-m { color: var(--t2); font-size: 14px; }
 .lq-note { color: var(--t2); font-size: 14px; }
 .doc h1, .doc h2, .doc h3, .doc h4 { overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- nvim-nav（左下のモード表示） */
+/* 下のパネルを開いている間は、モード表示をパネルの上に出す */
+body.dbv-open { --nvn-bottom: calc(var(--dbv-h, 36vh) + 12px); }
+/* 左の目次の最後の項目を、モード表示より上までスクロールできるようにする */
+.side { padding-bottom: 56px; }
