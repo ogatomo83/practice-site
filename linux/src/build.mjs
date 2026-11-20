@@ -56,7 +56,7 @@ function checkInfo(what, { flags, attrs }, okFlags, okAttrs, ctx) {
 const editor = (raw, lang, label, minRows = 1) =>
   `<div class="ed"><pre class="ed-hl" aria-hidden="true"><code>${HL.editorHTML(raw, lang)}</code></pre><textarea class="ed-ta" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="${attr(label)}" rows="${Math.max(minRows, raw.split('\n').length)}">${esc(raw)}</textarea></div>`;
 
-// ```sh run：その場で書き換えて実行できるブロック。info はフェンスの info 文字列（lang から）
+// ```sh run：お手本を見て、学習者が自分で打って実行するブロック。info はフェンスの info 文字列（lang から）
 function runBlock(body, info, ctx) {
   const { flags, attrs } = parseInfo(info.replace(/^\S+\s*/, ''));
   checkInfo('sh run', { flags, attrs }, RUN_FLAGS, RUN_ATTRS, ctx);
@@ -77,7 +77,9 @@ function runBlock(body, info, ctx) {
     attrs.stdin !== undefined ? `<span class="code-badge" title="最初のコマンドに、キーボードからこう打ったものとして渡します（⏎ は Enter）">入力：${esc(attrs.stdin.replace(/\\n/g, ' ⏎ ').replace(/\\t/g, '⇥').trim())}</span>` : '',
     flags.has('limit') ? '<span class="code-badge">上限で打ち切られる</span>' : '',
   ].join('');
-  return `<div class="code lnxrun${isFail ? ' is-fail' : ''}" data-lang="sh" data-info="${attr(info)}"><div class="code-h">${title}${badges}<span class="run-key" title="Ctrl または ⌘ + Enter でも実行できます">⌘↵</span><button type="button" class="undo" hidden>元に戻す</button><button type="button" class="copy" aria-label="コマンドをコピー">コピー</button><button type="button" class="run-btn">${PLAY}<span>実行</span></button></div>${editor(raw, 'sh', 'コマンドを編集して実行できます')}<div class="out" hidden aria-live="polite"></div></div>`;
+  // お手本（読むだけ）+ 端末風の入力行。学習者がお手本を見て打ち、Enter で実行する（動きは assets/lnx-run.js）
+  const pr = who === 'root' ? 'root@zukai:~# ' : `${who || 'you'}@zukai:~$ `;
+  return `<div class="code lnxrun${isFail ? ' is-fail' : ''}" data-lang="sh" data-info="${attr(info)}" data-src="${attr(raw)}"><div class="code-h">${title}${badges}<button type="button" class="copy" aria-label="お手本のコマンドをコピー">コピー</button></div><div class="lr-model"><div class="lr-k">お手本</div><pre><code>${highlight(raw, 'sh')}</code></pre></div><div class="lr-term"><div class="lr-prev" hidden></div><div class="tm lr-log" aria-live="polite"></div><div class="lr-line"><span class="term-pr lr-pr">${esc(pr)}</span><textarea class="term-in lr-in" rows="1" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="お手本のコマンドをここに打って Enter"></textarea></div></div><div class="lr-foot"><span class="lr-st">お手本を打って Enter</span><button type="button" class="lr-fill">お手本を入れる</button></div></div>`;
 }
 
 // ```sh setup：章の準備。ページの機械を起動した直後に自動で流れる。本文には折りたたみで出す
@@ -469,7 +471,7 @@ function homePage() {
     )
     .join('');
   const tryIt = runBlock(
-    `# このボタンで、ブラウザの中の小さな Linux がコマンドを実行します
+    `# 下の入力欄に 1 行ずつ打って Enter
 whoami
 ls -l
 sort fruits.txt | uniq -c | sort -rn | head -3`,
@@ -482,7 +484,7 @@ sort fruits.txt | uniq -c | sort -rn | head -3`,
     <div class="hero-text">
       <div class="ch-eyebrow">小さな Linux をブラウザで動かしながら読む</div>
       <h1>コマンドの使い方から、カーネルの中まで</h1>
-      <p class="lead">シェルとコマンド、ファイルと権限、パイプとシェルスクリプトから始めて、プロセス、ファイルディスクリプタ、システムコール、ファイルシステム、仮想メモリ、スケジューラ、そしてコンテナの仕組みまで。Linux を日本語で一から説明します。本文のコマンドはすべて、その場で書き換えて実行でき、プロセスの木やファイルディスクリプタの表、システムコールの列を、動かしながら見られます。</p>
+      <p class="lead">シェルとコマンド、ファイルと権限、パイプとシェルスクリプトから始めて、プロセス、ファイルディスクリプタ、システムコール、ファイルシステム、仮想メモリ、スケジューラ、そしてコンテナの仕組みまで。Linux を日本語で一から説明します。本文のコマンドはすべて、その場で自分で打って実行でき、プロセスの木やファイルディスクリプタの表、システムコールの列を、動かしながら見られます。</p>
       <div class="hero-act">${first ? `<a class="btn primary" href="${first.slug}.html">${first.num === '0' ? '序章から読む' : '最初の章から読む'}</a>` : ''}<a class="btn" href="playground.html">実験場で自由に試す</a><a class="btn" id="resume" href="${(chapters[1] || first || { slug: 'playground' }).slug}.html" hidden>続きから</a></div>
       <dl class="hero-stats"><div><dt>章</dt><dd>${chapters.length}</dd></div><div><dt>節</dt><dd>${total}</dd></div><div><dt>図</dt><dd>${figs}</dd></div><div><dt>実行できる例</dt><dd>${runs}</dd></div><div><dt>読了</dt><dd><span id="done-count">0</span><span class="of"> / ${total}</span></dd></div></dl>
     </div>
