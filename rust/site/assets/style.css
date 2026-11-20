@@ -544,3 +544,7 @@ figcaption { font-size: 13px; line-height: 1.7; color: var(--t2); margin-top: 10
   .layout { display: block; }
   .step-pane[hidden] { display: flex !important; }
 }
+
+/* ---------------------------------------------------------------- nvim-nav（左下のモード表示） */
+/* 左の目次の最後の項目を、モード表示より上までスクロールできるようにする */
+.side { padding-bottom: 56px; }

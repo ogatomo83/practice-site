@@ -391,6 +391,7 @@ ${runner ? `${panel ? `<aside class="dbv" id="cpuv" hidden aria-label="CPU ã®ä¸
 <script src="assets/cpuview.js"></script>` : ''}
 ${quiz ? '<script src="assets/quiz.js"></script>' : ''}
 ${play ? '<script src="assets/samples.js"></script>\n<script src="assets/play.js"></script>' : ''}
+<script src="assets/nvim-nav.js"></script>
 </body>
 </html>`;
 }

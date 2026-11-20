@@ -1347,3 +1347,9 @@ button.ft-tw:hover { background: var(--raised); color: var(--t1); }
 .tm-note { color: var(--t3); font: 400 12.5px/1.6 var(--sans); padding: 4px 0 8px; }
 .tm-out .tm-n { color: var(--t2); }
 .play-view .gv-split { grid-template-columns: 1fr; } .play-view .gv-tree { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
+
+/* ---------------------------------------------------------------- nvim-nav（左下のモード表示） */
+/* 下のパネルを開いている間は、モード表示をパネルの上に出す */
+body.dbv-open { --nvn-bottom: calc(var(--dbv-h, 36vh) + 12px); }
+/* 左の目次の最後の項目を、モード表示より上までスクロールできるようにする */
+.side { padding-bottom: 56px; }

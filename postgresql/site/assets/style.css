@@ -899,3 +899,9 @@ body.dbv-open .side, body.dbv-open .toc { height: calc(100vh - 56px - var(--dbv-
   .qz { padding: 14px 14px 10px; }
   .qz-rule { flex-basis: 100%; order: 4; }
 }
+
+/* ---------------------------------------------------------------- nvim-nav（左下のモード表示） */
+/* 下のパネルを開いている間は、モード表示をパネルの上に出す */
+body.dbv-open { --nvn-bottom: calc(var(--dbv-h, 36vh) + 12px); }
+/* 左の目次の最後の項目を、モード表示より上までスクロールできるようにする */
+.side { padding-bottom: 56px; }
