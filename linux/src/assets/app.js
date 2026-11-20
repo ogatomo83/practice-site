@@ -57,7 +57,7 @@
       const ta = box.querySelector('.ed-ta');
       const code = box.querySelector('code');
       const lines = $$('.ln', code).filter((l) => !l.classList.contains('del'));
-      let text = ta ? ta.value : lines.map((l) => l.textContent).join('\n');
+      let text = box.dataset.src !== undefined ? box.dataset.src : ta ? ta.value : lines.map((l) => l.textContent).join('\n');
       if (b.closest('.is-console') && !ta) text = text.split('\n').filter((l) => l.startsWith('$ ')).map((l) => l.slice(2)).join('\n') || text;
       try { await navigator.clipboard.writeText(text); b.textContent = 'コピーしました'; } catch (e) { b.textContent = '失敗'; }
       setTimeout(() => (b.textContent = 'コピー'), 1400);
