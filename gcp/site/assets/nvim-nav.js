@@ -1,4 +1,4 @@
-/*! nvim-nav.js v0.3.0 — Neovim 風のキーボード操作 (NORMAL / INSERT) を静的ページに足す部品。
+/*! nvim-nav.js v0.3.1 — Neovim 風のキーボード操作 (NORMAL / INSERT) を静的ページに足す部品。
  * 依存なし・外部読み込みなし・file:// で動く。CSS はこのファイルに同梱 (<style id="nvim-nav-style"> を 1 回だけ入れる)。
  *
  * 入れ方:  <script src="nvim-nav.js" defer></script>   (body の最後でもよい。2 回読んでも 1 回しか動かない)
@@ -10,7 +10,7 @@
  *                   position fixed / sticky の中の入力欄 (ヘッダーの検索欄など) は本文に無い時だけ選ぶ
  *           ?       キー一覧を開く / 閉じる (開いている間は ? / Ctrl-N / Esc で閉じる)
  *           Space f 目次検索: このページの目次 (サイドバーのリンク) と見出しを絞り込んで飛ぶ (Space の後 1 秒以内に f)。
- *                   開いている間は Ctrl-J / Ctrl-K で候補を移る、Enter で飛ぶ、Esc / Ctrl-N で閉じる。
+ *                   開いている間は Ctrl-N / Ctrl-P (Ctrl-J / Ctrl-K も) で候補を移る、Enter で飛ぶ、Esc で閉じる。
  *                   NORMAL の Space 単体 (ページのスクロール) は止める。Space の後に f 以外が来たら何もしない
  *   INSERT  Ctrl-N  入力欄から抜けて NORMAL へ。それ以外のキーは全部ふつうに入力欄へ (Ctrl-C も奪わない)
  *   両方    Ctrl-J / Ctrl-K  画面に見えている入力欄の次 / 前へ (文書の順、端で折り返す)。NORMAL で押すと INSERT に入る
@@ -249,7 +249,7 @@
     if (e.defaultPrevented) return;
     const k = keyName(e);
     if (findEl && !findEl.hidden) { // 目次検索の画面: キーは画面の入力欄が受ける (onFindKey)。外にフォーカスが出た時だけここで閉じる
-      if (k === 'Escape' || k === cfg.exitKey) { e.preventDefault(); find(false); }
+      if (k === 'Escape') { e.preventDefault(); find(false); }
       return;
     }
     const helpOpen = helpEl && !helpEl.hidden;
@@ -495,9 +495,9 @@
     if (e.isComposing || e.keyCode === 229) return; // 変換中の Enter などは IME のもの
     const k = keyName(e);
     let done = true;
-    if (k === 'Escape' || k === cfg.exitKey) find(false);
-    else if (k === 'C-j' || k === 'ArrowDown') select(findSel + 1);
-    else if (k === 'C-k' || k === 'ArrowUp') select(findSel - 1);
+    if (k === 'Escape') find(false);
+    else if (k === 'C-n' || k === 'C-j' || k === 'ArrowDown') select(findSel + 1);
+    else if (k === 'C-p' || k === 'C-k' || k === 'ArrowUp') select(findSel - 1);
     else if (k === 'Enter') go(findSel);
     else done = false;
     if (done) { e.preventDefault(); e.stopPropagation(); }
@@ -618,7 +618,7 @@
       `<h3>NORMAL (入力欄の外)</h3><table>${rows.map(tr).join('')}</table>` +
       `<h3>INSERT (入力欄の中)</h3><table><tr><td><kbd>${esc(exLabel)}</kbd></td><td>入力欄から抜けて NORMAL へ</td></tr><tr><td>そのほか</td><td>ふつうに入力欄へ (Ctrl-C も含む)</td></tr></table>` +
       (both.length ? `<h3>どちらのモードでも (NORMAL で押すと INSERT に入る)</h3><table>${both.map(tr).join('')}</table>` : '') +
-      (binding('Space f') ? `<h3>目次検索 (Space f で開いた画面)</h3><table>${[['C-j', '次の候補へ'], ['C-k', '前の候補へ'], ['Enter', '飛ぶ (リンクは移動、見出しはスクロール)'], ['Esc', '閉じる (' + exLabel + ' でも)']].map(tr).join('')}</table>` : '') +
+      (binding('Space f') ? `<h3>目次検索 (Space f で開いた画面)</h3><table>${[['C-n', '次の候補へ (Ctrl-J でも)'], ['C-p', '前の候補へ (Ctrl-K でも)'], ['Enter', '飛ぶ (リンクは移動、見出しはスクロール)'], ['Esc', '閉じる']].map(tr).join('')}</table>` : '') +
       `<p>入力欄をクリックすると INSERT、外をクリックすると NORMAL。ここに無い Cmd / Ctrl / Alt 付きのキーはブラウザのまま。閉じる: <kbd>?</kbd> <kbd>${esc(exLabel)}</kbd> <kbd>Esc</kbd></p>`;
   }
   function help(show) {
@@ -669,7 +669,7 @@
       findEl.innerHTML = '<div class="nvn-fcard"><div class="nvn-fhead"><label for="nvn-finput">目次検索</label>' +
         '<input id="nvn-finput" class="nvn-finput" type="text" autocomplete="off" spellcheck="false" placeholder="目次と見出しを絞り込む" role="combobox" aria-expanded="true" aria-controls="nvn-flist">' +
         '<span class="nvn-fcount"></span></div><ul class="nvn-flist" id="nvn-flist" role="listbox"></ul>' +
-        '<div class="nvn-ffoot"><kbd>Ctrl-J</kbd><kbd>Ctrl-K</kbd> 移る　<kbd>Enter</kbd> 飛ぶ　<kbd>Esc</kbd> 閉じる</div></div>';
+        '<div class="nvn-ffoot"><kbd>Ctrl-N</kbd><kbd>Ctrl-P</kbd> 移る　<kbd>Enter</kbd> 飛ぶ　<kbd>Esc</kbd> 閉じる</div></div>';
       const inp = findEl.querySelector('.nvn-finput');
       inp.addEventListener('keydown', onFindKey);
       inp.addEventListener('input', (e) => { if (!e.isComposing) renderFind(false); });
@@ -692,7 +692,7 @@
 
   // ------------------------------------------------------------ 公開
   const api = {
-    version: '0.3.0',
+    version: '0.3.1',
     get mode() { return mode; },
     get enabled() { return enabled; },
     configure,
